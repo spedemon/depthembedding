@@ -8,7 +8,7 @@
 from sklearn import manifold 
 import scipy
 import scipy.io
-from numpy import zeros, ones
+from numpy import zeros, ones, sort, unravel_index
 
 
 
@@ -18,9 +18,40 @@ class ReconstructorMAP():
     of a gamma photon (2D and 3D)."""
     def __init__(self, forward_model): 
         self.forward_model = forward_model 
+        self._nd = len(self.forward_model.shape)-1
 
-    def reconstruct(self, data): 
-        pass #FIXME
+    def is_3D(self):
+        return self._nd == 3 
+
+    def reconstruct(self, data, batch_size=None): 
+        N = data.shape[1]
+        if self.is_3D(): 
+            # 3D reconstruction 
+            Nx = self.forward_model.shape[0]
+            Ny = self.forward_model.shape[1]
+            Nz = self.forward_model.shape[2]
+            data_size = self.forward_model.shape[3]
+        else: 
+            # 2D reconstruction 
+            Nx = self.forward_model.shape[0]
+            Ny = self.forward_model.shape[1]
+            data_size = self.forward_model.shape[2]
+            L = self.forward_model.reshape[Nx*Ny,data_size].T
+            logL = log(L);
+            sumL = repmat(L.sum(0),batch_size,1); 
+
+            N_batches = N / batch_size; 
+            X = zeros(N); 
+            Y = zeros(N); 
+
+            for i_batch in range(n_batches): 
+                like = data.T[(i_batch-1)*batch_size+1:i_batch*batch_size,:] * logL - sumL; 
+                [S,index] = sort(like,2,'descend'); 
+                I = index[:,1]; 
+                [x,y] = unravel_index([Nx,Ny],I); 
+                X[(i_batch-1)*batch_size+1:i_batch*batch_size] = x;
+                Y[(i_batch-1)*batch_size+1:i_batch*batch_size] = y; 
+        return X,Y
 
 
 
@@ -135,20 +166,14 @@ class MLEEM():
 
 
 
-def get_data_cmice(x,y,type="calibration"): 
+def get_data_cmice(x,y,path="./data_ftp/cmice_data/20140508_ZA0082/test_data/"): 
     """cMiCe camera data: load from file the calibration or test data for a given beam position. 
     Return a ndarray."""
-    calibration_datapath="/Users/spedemon/Desktop/Experiments/DOI/DOI_Larry/data_ftp/cmice_data/20140508_ZA0082/test_data/"
-    test_datapath="/Users/spedemon/Desktop/Experiments/DOI/DOI_Larry/data_ftp/cmice_data/20140508_ZA0082/test_data/"
-    filename = "/ROW%s_COL%s.mat"%(str(x+1).zfill(2), str(y+1).zfill(2))
-    if type is "calibration": 
-        filename = calibration_datapath + filename
-    elif type is "test": 
-        filename = test_datapath + filename 
+    filename = path + "/ROW%s_COL%s.mat"%(str(x+1).zfill(2), str(y+1).zfill(2))
     data = scipy.io.loadmat(filename)
     data[data<0] = 0
     return data['data'].T
-    
+
 
 
 
@@ -233,9 +258,11 @@ class DemoCmice():
 
 
 
-def get_data_simulation(x,y): 
+def get_data_simulation(filename = "./sysmat.mat"): 
     """Load from file the ground-truth forward model of a simulated monolithic gamma camera. """
-    pass #FIXME
+    data = scipy.io.loadmat(filename)
+    data[data<0] = 0
+    return data['sysmat'].T
 
 
 
