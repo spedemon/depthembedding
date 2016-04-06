@@ -990,97 +990,6 @@ class TestCmice():
 
 
 
-def get_system_model_simulation(filename = "./sysmat.mat"): 
-    """Load from file the ground-truth forward model of a simulated monolithic gamma camera. """
-    data = scipy.io.loadmat(filename)
-    data[data<0] = 0
-    return data['sysmat'].T
-
-
-
-
-
-class TestSimulation(TestCmice): 
-    """Estimation of the forward model of a simulated monolithic PET camera 
-    and reconstruction using various 2D and 3D methods. """
-    def __init__(self, nx=32, ny=32, nz=16, n_neighbours=12): 
-        TestCmice.__init__(nx,ny,nz,n_neighbours)
-        self.n_detectors = 64 
-        self.scintillator_attenuation_coefficient = 0.83 #[cm-1]
-        self.scintillator_thickness = 0.8 #[cm]
-        self.sysmat = get_sysmat_model_simulation() 
-
-    def get_data(self, x,y): 
-        #FIXME: random depth and add Poisson noise
-        return self.sysmat[x,y,0,:]
-
-    def load_forward_model_2D(self, filename='./model_simulation_2D.mat'): 
-        try: 
-            model = scipy.io.loadmat(filename)['model_simulation_2D']
-        except: 
-            return None
-        print "-Found 2D forward model file: %s - not recomputing it."%filename
-        self.forward_model_2D = model
-        return model
-
-    def load_forward_model_DE(self, filename='./model_simulation_DE.mat'): 
-        try: 
-            model = scipy.io.loadmat(filename)['model_simulation_DE']
-        except: 
-            return None
-        print "-Found 3D DepthEmbedding forward model file: %s - not recomputing it."%filename
-        self.forward_model_DE = model
-        return model
-
-    def load_forward_model_MLEEM(self, filename='./model_simulation_MLEEM.mat'): 
-        try: 
-            model = scipy.io.loadmat(filename)['model_simulation_MLEEM']
-        except: 
-            return None
-        print "-Found 3D DepthEmbedding+MLEEM forward model file: %s - not recomputing it."%filename
-        self.forward_model_MLEEM = model
-        return model
-
-    def save_forward_model_2D(self, filename='./model_simulation_2D.mat'): 
-        scipy.io.savemat(filename, {'model_simulation_2D':self.forward_model_2D})
-
-    def save_forward_model_DE(self, filename='./model_simulation_DE.mat'): 
-        scipy.io.savemat(filename, {'model_simulation_DE':self.forward_model_DE})
- 
-    def save_forward_model_MLEEM(self, filename='./model_simulation_MLEEM.mat'): 
-        scipy.io.savemat(filename, {'model_simulation_MLEEM':self.forward_model_MLEEM})
-
-    def run(self): 
-        print "-Estimating the forward model 2D .."
-        if self.load_forward_model_2D() is None: 
-            self.estimate_forward_model_2D() 
-            self.save_forward_model_2D()
-        print "-Estimating the forward model DepthEmbedding .."
-        if self.load_forward_model_DE() is None: 
-            self.estimate_forward_model_DE() 
-            self.save_forward_model_DE() 
-        print "-Estimating the forward model MLEEM .."
-        if self.load_forward_model_MLEEM() is None:
-            self.estimate_forward_model_MLEEM() 
-            self.save_forward_model_MLEEM() 
-        print "-Loading 2D test grid"
-        self.load_test_grid([0,5,10,15,20,25,30], [0,5,10,15,20,25,30])
-        print "-Reconstruction using centroid algorithm"
-        self.reconstruct_grid_centroid()
-        print "-Reconstruction using 2D maximum-a-posteriori"
-        self.reconstruct_grid_2D_MAP()
-        print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding model)"
-        self.reconstruct_grid_3D_MAP_DE()
-        print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding + MLEE model)"
-        self.reconstruct_grid_3D_MAP_MLEEM()
-
-        print "Computing Bias and Variance"
-        self.compute_bias_and_variance() 
-        print "Visualizing results"
-        self.visualize_results() 
-        print "TestSimulation Done"
-    
-
 
 
 
@@ -1090,11 +999,6 @@ if __name__ == "__main__":
     print "-- Running cMiCe PET camera calibration .."
     cmice = TestCmice()
     cmice.run() 
-    
-    #print "-- Running monolithic gamma camera simulation .."
-    #simulation = TestSimulation()
-    #sumulation.run()
-    
     print "-- Done"
 
 
