@@ -1,5 +1,5 @@
 
-# This software is part of Occiput
+# This software is part of Occiput - http://occiput.io 
 # March 2016
 # Stefano Pedemonte
 # Martinos Center for Biomedical Imaging, MGH, Boston, MA
@@ -125,23 +125,19 @@ class ReconstructorCentroid():
     def reconstruct(self, data): 
         data_size = data.shape[1]
         N = data.shape[0]
-
         X_detectors = tile(self.x_detectors, (N,1))
         Y_detectors = tile(self.y_detectors, (N,1)) 
-
         Energy = data.sum(1)
-
         X = (data**self.exponent * X_detectors).sum(1) / Energy
         Y = (data**self.exponent * Y_detectors).sum(1) / Energy
-        
         X = round((X + self.shift)*self.scale)
         Y = round((Y + self.shift)*self.scale)
         X[X<=self.x_min]=self.x_min
         Y[Y<=self.y_min]=self.y_min 
         X[X>=self.x_max]=self.x_max 
         Y[Y>=self.y_max]=self.y_max 
-
         return X,Y, Energy
+
 
 
 
@@ -153,6 +149,8 @@ def get_cumulative_prior(prior):
         cumulative_probability[i] = cumulative_probability[i-1] + prior[i]
     cumulative_probability = cumulative_probability / cumulative_probability[-1]  
     return cumulative_probability 
+
+
 
 
 
@@ -202,6 +200,7 @@ class EnergySpectrum():
 
 
 
+
 class HistogramCoordinates(): 
     """Histogram of the coordinates of interaction in 2D and 3D."""
     def __init__(self, nx, ny, nz=0): 
@@ -243,6 +242,8 @@ class HistogramCoordinates():
 
 
 
+
+
 class LikelihoodFilter(): 
     """Filter events based on the likelihood value. """
     def __init__(self, forward_model_2D):
@@ -257,6 +258,8 @@ class LikelihoodFilter():
             indexes = where((x_mle_2D==x) & (y_mle_2D==y))
             data_filtered = data[indexes,:]
         return squeeze(data_filtered)
+
+
 
 
 
@@ -293,6 +296,7 @@ class Model2D():
     def visualize_model(self, x, y, reshape=(8,8)): 
         m = self.forward_model[x,y,:].reshape(reshape)
         pylab.imshow(m)
+
 
 
 
@@ -435,6 +439,8 @@ class ModelDepthEmbedding():
 
 
     
+    
+
 
 class ModelMLEEM(): 
     """Algorithm for the estimation of the characteristics of a gamma camera based on 
@@ -487,6 +493,9 @@ class ModelMLEEM():
 
 
 
+
+
+
 class StatsCoordinates(): 
     """Compute statistics of reconstructed coordinates of interaction - i.e. bias, std, errors."""
     def __init__(self, recostructed_coordinates, groundtruth_coordinates, method_name=""):
@@ -526,6 +535,8 @@ class StatsCoordinates():
 
 
 
+
+
 def get_data_cmice(x,y,path="./data_ftp/cmice_data/20140508_ZA0082/test_data/"): 
     """cMiCe camera data: load from file the calibration or test data for a given beam position. 
     Return a ndarray."""
@@ -533,6 +544,8 @@ def get_data_cmice(x,y,path="./data_ftp/cmice_data/20140508_ZA0082/test_data/"):
     data = scipy.io.loadmat(filename)['data']
     data[data<0] = 0
     return float32(data.T)
+
+
 
 
 
@@ -807,13 +820,12 @@ class TestCmice():
 
 
 
+
 def get_system_model_simulation(filename = "./sysmat.mat"): 
     """Load from file the ground-truth forward model of a simulated monolithic gamma camera. """
     data = scipy.io.loadmat(filename)
     data[data<0] = 0
     return data['sysmat'].T
-
-
 
 
 
@@ -899,6 +911,7 @@ class TestSimulation(TestCmice):
         self.visualize_results() 
         print "TestSimulation Done"
     
+
 
 
 
