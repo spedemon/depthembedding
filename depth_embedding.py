@@ -8,8 +8,8 @@
 from sklearn import manifold 
 import scipy
 import scipy.io
-from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze
-from numpy import log, tile, float32, argsort, int32, histogram, linspace, round, exp
+from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze, fliplr, flipud
+from numpy import log, tile, float32, argsort, int32, histogram, linspace, round, exp, convolve, sqrt
 import pylab
 pylab.ion()
 
@@ -44,7 +44,8 @@ class ReconstructorMAP():
             Nz = self.forward_model.shape[2]
             L = self.forward_model.reshape(Nx*Ny*Nz,data_size).T
             logL = log(L+EPS) 
-            logSumL = log(L.sum(0)) 
+            logSumL = log(L.sum(0)+EPS) 
+            
             if self.prior is not None: 
                 logPrior = log(self.prior)
                 # if prior on depth (not on x,y,z), then repeat for each x,y location
@@ -61,8 +62,9 @@ class ReconstructorMAP():
 
             for i_batch in range(n_batches): 
                 D = data[i_batch*batch_size:(i_batch+1)*batch_size,:]
-                logD = tile(logSumL,(batch_size,1)) * tile(data.sum(1),(1024,1)).T
-                loglikelihood = D.dot(logL) - logD + logPrior
+                sumD = data.sum(1)
+                logD = tile(logSumL,(batch_size,1)) * tile(sumD,(Nx*Ny*Nz,1)).T
+                loglikelihood = D.dot(logL) - logD + tile(logPrior.reshape(((1,Nx*Ny*Nz))),(batch_size,1))
                 index = int32(argsort(loglikelihood,axis=1))
                 I = index[:,-1]
                 [x,y,z] = unravel_index(I,[Nx,Ny,Nz])
@@ -79,6 +81,7 @@ class ReconstructorMAP():
             L = self.forward_model.reshape(Nx*Ny,data_size).T
             logL = log(L+EPS) 
             logSumL = log(L.sum(0)+EPS) 
+            
             if self.prior is not None: 
                 logPrior = log(self.prior) 
             else: 
@@ -92,7 +95,7 @@ class ReconstructorMAP():
             for i_batch in range(n_batches): 
                 D = data[i_batch*batch_size:(i_batch+1)*batch_size,:]
                 sumD = data.sum(1)
-                logD = tile(logSumL,(batch_size,1)) * tile(sumD,(1024,1)).T
+                logD = tile(logSumL,(batch_size,1)) * tile(sumD,(Nx*Ny,1)).T
                 loglikelihood = D.dot(logL) - logD + logPrior
                 index = int32(argsort(loglikelihood,axis=1))
                 I = index[:,-1] 
@@ -268,7 +271,7 @@ class Model2D():
 
     def set_calibration_data(self, data):
         if not self._check_data(data): 
-            print "Model2D: Calibration data does not have the correct size. "
+            print "~Model2D: Calibration data does not have the correct size. "
             return 
         self.calibration_data = data 
         self.n_training  = data.shape[0]
@@ -311,13 +314,13 @@ class ModelDepthEmbedding():
         
     def set_depth_prior(self, prior): 
         if len(prior) != self.nz: 
-            print "Length of depth prior vector must be equal to self.nz (%d)"%self.nz
+            print "~ModelDepthEmbedding: Length of depth prior vector must be equal to self.nz (%d)"%self.nz
             return 
         self.prior = prior 
 
     def set_calibration_data(self, data):
         if not self._check_data(data): 
-            print "ModelDepthEmbedding: Calibration data does not have the correct size. "
+            print "~ModelDepthEmbedding: Calibration data does not have the correct size. "
             return 
         self.calibration_data = data 
         self.n_training  = data.shape[0]
@@ -329,20 +332,21 @@ class ModelDepthEmbedding():
         forward_model = zeros([self.nz,self.n_detectors]) 
         cumulative_prior = get_cumulative_prior(self.prior)
 
-        print "1-Projecting calibration data onto the manifold.."
+        #print "1-Projecting calibration data onto the manifold.."
         self.manifold = manifold.LocallyLinearEmbedding(self.n_neighbours, n_components=self.n_components, method=self.lle_method) 
-        data_1d = self.manifold.fit_transform(data) 
+        data_1d = self.manifold.fit_transform(data)[:,0]
 
-        print "2-Sorting the manifold.."
+        #print "2-Sorting the manifold.."
         data_1d = data_1d-data_1d.min()
         data_1d = data_1d/data_1d.max()
         data_1d = data_1d-data_1d.mean()
         data_1d_s = sort(data_1d)
         s = argsort(data_1d) 
 
-        print "3-Determining the orientation of the manifold.."
-#        manifold_density = 1.0 / conv(sqrt(mean_distance_points[s]),ones(1,10*neighbours), 'valid') 
-        manifold_density = ones(10);  #FIXME 
+        #print "3-Determining the orientation of the manifold.."
+        distance_points = self.manifold.nbrs_.kneighbors()[0].sum(1)
+        manifold_density = 1.0 / convolve(sqrt(distance_points[s]),ones([5*self.n_neighbours]), mode='valid') 
+
 
         if (manifold_density[0] < manifold_density[-1]): 
             invert = 1 
@@ -352,7 +356,7 @@ class ModelDepthEmbedding():
         else: 
             invert = 0 
 
-        print "4-Depth mapping.."   
+        #print "4-Depth mapping.."   
         # Depth mapping - determine boundaries 
         boundaries = zeros(self.nz+1) 
         boundaries[0] = data_1d_s[0]
@@ -365,6 +369,14 @@ class ModelDepthEmbedding():
             for z in range(self.nz):
                 if ( data_1d[i]>=boundaries[z] ) and ( data_1d[i]<=boundaries[z+1] ): 
                     membership[i]= z
+
+        #print "5-Averaging measurement vectors.."
+        N_points_per_bin = histogram(membership,bins=self.nz)[0]
+        for i in range(N): 
+            z = membership[i]
+            forward_model[z,:] += data[i,:]
+        for z in range(self.nz): 
+            forward_model[z,:] /= N_points_per_bin[z]
 
         self.membership = membership
         self.data_1d = data_1d
@@ -380,6 +392,7 @@ class ModelDepthEmbedding():
 
     def visualize_manifold(self, nd=3): 
         data = self.calibration_data
+        N = data.shape[0]
         man = manifold.LocallyLinearEmbedding(self.n_neighbours, n_components=nd, method=self.lle_method) 
         data_nd = man.fit_transform(data) 
 
@@ -387,18 +400,35 @@ class ModelDepthEmbedding():
         import matplotlib.pyplot as plt
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(data_nd[:,0], data_nd[:,1], data_nd[:,2])
+
+        color = zeros([self.nz,3]) 
+        color[:,1]=flipud(linspace(0,1,self.nz)) 
+        for i in range(self.nz):
+            if i%2:
+                color[i,0]=0; color[i,2]=1;
+            else: 
+                color[i,0]=1; color[i,2]=0;
+
+        cmap = zeros((N,3))
+        for i in range(N): 
+            cmap[i,:] = color[self.membership[i],:]
+        if nd==1: 
+            ax.scatter(data_nd[:,0], zeros(data_nd[:,0].shape), c=cmap, s=4, marker='.', edgecolors=cmap)
+        elif nd==2: 
+            ax.scatter(data_nd[:,0], data_nd[:,1], c=cmap, s=4, marker='.', edgecolors=cmap)
+        else: 
+            ax.scatter(data_nd[:,0], data_nd[:,1], data_nd[:,2], c=cmap, s=4, marker='.', edgecolors=cmap)
         ax.set_xlabel('r1')
         ax.set_ylabel('r2')
         ax.set_zlabel('r3')
         plt.show()
 
-    def visualize_model(self, x, y, depth=None, reshape=(8,8)): 
+    def visualize_model(self, depth=None, reshape=(8,8)): 
         if depth is None: 
-            m = self.forward_model[x,y,:,:].mean(0).reshape(reshape)
+            m = self.forward_model[:,:].mean(0).reshape(reshape)
         else: 
-            m = self.forward_model[x,y,depth,:].reshape(reshape)
-        pylab.imshow(m)
+            m = self.forward_model[depth,:].reshape(reshape)
+        pylab.imshow(m, resample='nearest')
 
     def _check_data(self, data): 
         return len(data.shape)==2
@@ -414,16 +444,21 @@ class ModelMLEEM():
         self.prior = None
         self.set_initial_model(initial_model)
 
-    def estimate_forward_model(self, method="hard", n_max_iterations=10, toll=1e-3): 
+    def estimate_forward_model(self, method="hard", n_max_iterations=15): 
         nz = self.initial_model.shape[0]
         n_detectors = self.initial_model.shape[1]
-        forward_model = self.initial_model 
+        forward_model = self.initial_model.copy()
         if method is "hard": 
             for i in range(n_max_iterations): 
-                pass # FIXME
+                reconstructor = ReconstructorMAP(forward_model) 
+                reconstructor.set_prior(self.prior) 
+                [xrec,yrec,zrec,energyrec] = reconstructor.reconstruct(self.calibration_data) 
+                for z in range(nz): 
+                    indexes = where(zrec==z)[0]
+                    forward_model[0,0,z,:] = self.calibration_data[indexes,:].sum(0)/len(indexes)
         elif method is "soft": 
             for i in range(n_max_iterations): 
-                pass # FIXME
+                pass # FIXME-implement
         self.forward_model = forward_model 
         return forward_model 
 
@@ -433,13 +468,13 @@ class ModelMLEEM():
     def set_initial_model(self, initial_model): 
         if self.prior != None: 
             if initial_model.shape[0] != len(self.prior): 
-                 print "The number of depth bins in the forward model must match the length of the multinomial prior (%d)."%len(self.prior)
+                 print "~The number of depth bins in the forward model must match the length of the multinomial prior (%d)."%len(self.prior)
                  return
-        self.initial_model = initial_model 
+        self.initial_model = initial_model.reshape((1,1,initial_model.shape[0],initial_model.shape[1]))
 
     def set_depth_prior(self, prior): 
-        if len(prior) != self.initial_model.shape[0]: 
-            print "Length of depth prior vector must be equal to the numeber of depth bins in the forward model (%d)."%self.self.initial_model.shape[0]
+        if len(prior) != self.initial_model.shape[2]: 
+            print "~Length of depth prior vector must be equal to the number of depth bins in the forward model (%d)."%self.initial_model.shape[2]
             return 
         self.prior = prior 
 
@@ -451,6 +486,43 @@ class ModelMLEEM():
         pylab.imshow(m)
 
 
+
+class StatsCoordinates(): 
+    """Compute statistics of reconstructed coordinates of interaction - i.e. bias, std, errors."""
+    def __init__(self, recostructed_coordinates, groundtruth_coordinates, method_name=""):
+        self.method_name = method_name 
+        self.recostructed_coordinates = recostructed_coordinates
+        self.groundtruth_coordinates = groundtruth_coordinates
+        self.compute_stats() 
+
+    def compute_stats(self):
+        n_points_x = len(self.groundtruth_coordinates)
+        n_points_y = len(self.groundtruth_coordinates[0])
+        self.bias = zeros([n_points_x,n_points_y])
+        self.std = zeros([n_points_x,n_points_y])
+        self.error = zeros([n_points_x,n_points_y])
+        for ix in range(n_points_x): 
+            for iy in range(n_points_y): 
+                groundtruth_X = self.groundtruth_coordinates[0][ix][iy]
+                groundtruth_Y = self.groundtruth_coordinates[1][ix][iy]
+                reconstructed = self.recostructed_coordinates[ix][iy]
+                reconstructed_x = reconstructed[0]
+                reconstructed_y = reconstructed[1]
+                reconstructed_X = reconstructed_x.mean() 
+                reconstructed_Y = reconstructed_y.mean() 
+                self.bias[ix,iy] = sqrt((reconstructed_X-groundtruth_X)**2+(reconstructed_Y-groundtruth_Y)**2)  
+                self.std[ix,iy] = sqrt((1.0/len(reconstructed_x)) * ((reconstructed_x-reconstructed_X)**2+(reconstructed_y-reconstructed_Y)**2).sum());  
+                self.error[ix,iy] = sqrt((1.0/len(reconstructed_x)) * ((reconstructed_x-groundtruth_X)**2+(reconstructed_y-groundtruth_Y)**2).sum()); 
+        self.Bias = self.bias.mean()
+        self.Std = self.std.mean()
+        self.Error = self.error.mean()
+
+    def print_summary(self): 
+        print "===================================================="
+        print "Bias %s:   %f"%(self.method_name, self.Bias) 
+        print "Std %s:    %f"%(self.method_name, self.Std) 
+        print "Error %s:  %f"%(self.method_name, self.Error) 
+        print "----------------------------------------------------"
 
 
 
@@ -468,7 +540,6 @@ def get_data_cmice(x,y,path="./data_ftp/cmice_data/20140508_ZA0082/test_data/"):
 class TestCmice(): 
     """Estimation of the forward model of the cMiCe PET camera and reconstruction using various 2D and 3D methods. """
     def __init__(self, nx=32, ny=32, nz=16, n_neighbours=12): 
-        self.enable_cache() 
         self.nx = nx 
         self.ny = ny 
         self.nz = nz 
@@ -478,8 +549,8 @@ class TestCmice():
         self.scintillator_thickness = 0.8 #[cm]
         self._set_depth_prior()
         self.forward_model_2D = None 
-        self.forward_model_3D_DE = None 
-        self.forward_model_3D_MLEEM = None 
+        self.forward_model_DE = None 
+        self.forward_model_MLEEM = None 
         self.coordinates_centroid = None 
         self.coordinates_2D_MAP = None 
         self.coordinates_3D_MAP_DE = None 
@@ -503,6 +574,7 @@ class TestCmice():
             model = scipy.io.loadmat(filename)['model_cmice_2D']
         except: 
             return None
+        print "-Found 2D forward model file: %s - not recomputing it."%filename
         self.forward_model_2D = model
         return model
 
@@ -511,7 +583,8 @@ class TestCmice():
             model = scipy.io.loadmat(filename)['model_cmice_DE']
         except: 
             return None
-        self.forward_model_3D_DE = model
+        print "-Found 3D DepthEmbedding forward model file: %s - not recomputing it."%filename
+        self.forward_model_DE = model
         return model
 
     def load_forward_model_MLEEM(self, filename='./model_cmice_MLEEM.mat'): 
@@ -519,7 +592,8 @@ class TestCmice():
             model = scipy.io.loadmat(filename)['model_cmice_MLEEM']
         except: 
             return None
-        self.forward_model_3D_MLEEM = model
+        print "-Found 3D DepthEmbedding+MLEEM forward model file: %s - not recomputing it."%filename
+        self.forward_model_MLEEM = model
         return model
 
     def save_forward_model_2D(self, filename='./model_cmice_2D.mat'): 
@@ -534,9 +608,9 @@ class TestCmice():
     def estimate_forward_model_2D(self): 
         model = zeros([self.nx, self.ny, self.n_detectors])
         for ix in range(self.nx): 
-#        for ix in [1]:
+            self.print_percentage(ix,self.nx)
             for iy in range(self.ny): 
-                calibration_data = get_data_cmice(ix,iy)
+                calibration_data = self.get_data(ix,iy)
                 model_estimator = Model2D()
                 model_estimator.set_calibration_data(calibration_data)
                 model[ix,iy,:] = model_estimator.estimate_forward_model()
@@ -545,44 +619,44 @@ class TestCmice():
 
     def estimate_forward_model_DE(self): 
         model = zeros([self.nx, self.ny, self.nz, self.n_detectors])
-#        for ix in range(self.nx): 
-        for ix in [1]:
+        for ix in range(self.nx): 
+            self.print_percentage(ix,self.nx)
             for iy in range(self.ny): 
-                calibration_data = get_data_cmice(ix,iy)
+                calibration_data = self.get_data(ix,iy)
                 filter = LikelihoodFilter(self.forward_model_2D)
                 calibration_data_filtered = filter.filter(calibration_data, ix,iy) 
                 model_estimator = ModelDepthEmbedding(nz=self.nz, n_neighbours=self.n_neighbours)
                 model_estimator.set_calibration_data(calibration_data_filtered)
                 model_estimator.set_depth_prior(self.prior)
                 model[ix,iy,:,:] = model_estimator.estimate_forward_model() 
-        self.forward_model_3D_DE = model 
-        return self.forward_model_3D_DE
+        self.forward_model_DE = model 
+        return self.forward_model_DE
     
     def estimate_forward_model_MLEEM(self): 
         model = zeros([self.nx, self.ny, self.nz, self.n_detectors])
-#        for ix in range(self.nx): 
-        for ix in [1]:
+        for ix in range(self.nx): 
+            self.print_percentage(ix,self.nx)
             for iy in range(self.ny): 
-                calibration_data = get_data_cmice(ix,iy)
+                calibration_data = self.get_data(ix,iy)
                 filter = LikelihoodFilter(self.forward_model_2D)
                 calibration_data_filtered = filter.filter(calibration_data, ix,iy) 
-                model_estimator = ModelMLEEM(initial_model=self.forward_model_3D_DE[ix,iy,:,:])
+                model_estimator = ModelMLEEM(initial_model=self.forward_model_DE[ix,iy,:,:])
                 model_estimator.set_calibration_data(calibration_data_filtered) 
                 model_estimator.set_depth_prior(self.prior) 
                 model[ix,iy,:,:] = model_estimator.estimate_forward_model() 
-        self.forward_model_3D_MLEEM = model 
-        return self.forward_model_3D_MLEEM
+        self.forward_model_MLEEM = model 
+        return self.forward_model_MLEEM
 
     def load_test_grid(self, x_locations, y_locations): 
         self.grid = []
         for ix in x_locations: 
- #       for ix in [1]: 
             grid_row = [] 
             for iy in y_locations: 
-                data = get_data_cmice(ix,iy)
+                data = self.get_data(ix,iy)
                 grid_row.append(data)
             self.grid.append(grid_row) 
         self.grid_shape = (len(x_locations),len(y_locations))
+        self.grid_locations = [tile(x_locations,(len(y_locations),1)), tile(int32(y_locations).reshape((len(x_locations),1)),(1,len(x_locations)))]
         return self.grid
 
     def reconstruct_grid_centroid(self): 
@@ -609,6 +683,7 @@ class TestCmice():
         self.histogram_2D_MAP = HistogramCoordinates(self.nx, self.ny)
         self.spectrum_2D_MAP = EnergySpectrum()
         for ix in range(self.grid_shape[0]): 
+            self.print_percentage(ix,self.grid_shape[0])
             row = []
             for iy in range(self.grid_shape[1]):
                 data = self.grid[iy][ix]
@@ -621,12 +696,12 @@ class TestCmice():
 
     def reconstruct_grid_3D_MAP_DE(self): 
         self.coordinates_3D_MAP_DE = []
-        reconstructor = ReconstructorMAP(self.forward_model_3D_DE)  
+        reconstructor = ReconstructorMAP(self.forward_model_DE)  
         reconstructor.set_prior(self.prior)
         self.histogram_3D_MAP_DE = HistogramCoordinates(self.nx, self.ny, self.nz)
         self.spectrum_3D_MAP_DE = EnergySpectrum()
-#        for ix in range(self.grid_shape[0]): 
-        for ix in [1]:
+        for ix in range(self.grid_shape[0]): 
+            self.print_percentage(ix,self.grid_shape[0])
             row = []
             for iy in range(self.grid_shape[1]):
                 data = self.grid[iy][ix]
@@ -639,12 +714,12 @@ class TestCmice():
 
     def reconstruct_grid_3D_MAP_MLEEM(self): 
         self.coordinates_3D_MAP_MLEEM = []
-        reconstructor = ReconstructorMAP(self.forward_model_3D_MLEEM)  
+        reconstructor = ReconstructorMAP(self.forward_model_MLEEM)  
         reconstructor.set_prior(self.prior)
         self.histogram_3D_MAP_MLEEM = HistogramCoordinates(self.nx, self.ny, self.nz)
         self.spectrum_3D_MAP_MLEEM = EnergySpectrum()
-#        for ix in range(self.grid_shape[0]): 
-        for ix in [1]:
+        for ix in range(self.grid_shape[0]): 
+            self.print_percentage(ix,self.grid_shape[0])
             row = []
             for iy in range(self.grid_shape[1]):
                 data = self.grid[iy][ix]
@@ -657,15 +732,32 @@ class TestCmice():
 
     def compute_bias_and_variance(self): 
         if self.coordinates_centroid is not None: 
-            pass 
+            stats_centroid = StatsCoordinates(self.coordinates_centroid, self.grid_locations, "Centroid")
+            stats_centroid.print_summary()
         if self.coordinates_2D_MAP is not None: 
-            pass 
+            stats_2D_MAP = StatsCoordinates(self.coordinates_2D_MAP, self.grid_locations, "2D MAP")
+            stats_2D_MAP.print_summary()
         if self.coordinates_3D_MAP_DE is not None: 
-            pass 
+            stats_3D_MAP_DE = StatsCoordinates(self.coordinates_3D_MAP_DE, self.grid_locations, "3D MAP DepthEmbedding")
+            stats_3D_MAP_DE.print_summary()
         if self.coordinates_3D_MAP_MLEEM is not None: 
-            pass 
+            stats_3D_MAP_MLEEM = StatsCoordinates(self.coordinates_3D_MAP_MLEEM, self.grid_locations, "3D MAP DepthEmbedding+MLEEM")
+            stats_3D_MAP_MLEEM.print_summary()
 
     def visualize_results(self): 
+        # Visualize manifold: 
+        ix = 15
+        iy = 15
+        calibration_data = self.get_data(ix,iy) 
+        filter = LikelihoodFilter(self.forward_model_2D)
+        calibration_data_filtered = filter.filter(calibration_data, ix,iy) 
+        model_estimator = ModelDepthEmbedding(nz=self.nz, n_neighbours=self.n_neighbours)
+        model_estimator.set_calibration_data(calibration_data_filtered)
+        model_estimator.set_depth_prior(self.prior)
+        model_estimator.estimate_forward_model() 
+        model_estimator.visualize_manifold(nd=3)
+
+        # Visualize histograms: 
         if self.coordinates_centroid is not None: 
             self.histogram_centroid.show()
         if self.coordinates_2D_MAP is not None: 
@@ -679,39 +771,43 @@ class TestCmice():
         print "-Estimating the forward model 2D .."
         if self.load_forward_model_2D() is None: 
             self.estimate_forward_model_2D() 
+            self.save_forward_model_2D()
         print "-Estimating the forward model DepthEmbedding .."
-#        if self.load_forward_model_DE() is None: 
-#            self.estimate_forward_model_DE() 
+        if self.load_forward_model_DE() is None: 
+            self.estimate_forward_model_DE() 
+            self.save_forward_model_DE() 
         print "-Estimating the forward model MLEEM .."
-#        if self.load_forward_model_MLEEM() is None:
-#            self.estimate_forward_model_MLEEM() 
+        if self.load_forward_model_MLEEM() is None:
+            self.estimate_forward_model_MLEEM() 
+            self.save_forward_model_MLEEM() 
         print "-Loading 2D test grid"
         self.load_test_grid([0,5,10,15,20,25,30], [0,5,10,15,20,25,30])
         print "-Reconstruction using centroid algorithm"
         self.reconstruct_grid_centroid()
         print "-Reconstruction using 2D maximum-a-posteriori"
-        #self.reconstruct_grid_2D_MAP()
+        self.reconstruct_grid_2D_MAP()
         print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding model)"
-        #self.reconstruct_grid_3D_MAP_DE()
+        self.reconstruct_grid_3D_MAP_DE()
         print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding + MLEE model)"
-        #self.reconstruct_grid_3D_MAP_MLEEM()
-
+        self.reconstruct_grid_3D_MAP_MLEEM()
         print "Computing Bias and Variance"
-        #self.compute_bias_and_variance() 
+        self.compute_bias_and_variance() 
         print "Visualizing results"
         self.visualize_results() 
         print "TestCmice Done"
 
-    def enable_cache(self): 
-        self._cache = True
-    
-    def disable_cache(self): 
-        self._cache = False 
+    def get_data(self, x,y):
+        return get_data_cmice(x,y)
+
+    def print_percentage(self,value,max_value):
+        print "%d%%"%int32(100*value/(max_value-1))
 
 
 
 
-def get_data_simulation(filename = "./sysmat.mat"): 
+
+
+def get_system_model_simulation(filename = "./sysmat.mat"): 
     """Load from file the ground-truth forward model of a simulated monolithic gamma camera. """
     data = scipy.io.loadmat(filename)
     data[data<0] = 0
@@ -719,11 +815,89 @@ def get_data_simulation(filename = "./sysmat.mat"):
 
 
 
+
+
+
+
 class TestSimulation(TestCmice): 
     """Estimation of the forward model of a simulated monolithic PET camera 
     and reconstruction using various 2D and 3D methods. """
+    def __init__(self, nx=32, ny=32, nz=16, n_neighbours=12): 
+        TestCmice.__init__(nx,ny,nz,n_neighbours)
+        self.n_detectors = 64 
+        self.scintillator_attenuation_coefficient = 0.83 #[cm-1]
+        self.scintillator_thickness = 0.8 #[cm]
+        self.sysmat = get_sysmat_model_simulation() 
+
+    def get_data(self, x,y): 
+        #FIXME: random depth and add Poisson noise
+        return self.sysmat[x,y,0,:]
+
+    def load_forward_model_2D(self, filename='./model_simulation_2D.mat'): 
+        try: 
+            model = scipy.io.loadmat(filename)['model_simulation_2D']
+        except: 
+            return None
+        print "-Found 2D forward model file: %s - not recomputing it."%filename
+        self.forward_model_2D = model
+        return model
+
+    def load_forward_model_DE(self, filename='./model_simulation_DE.mat'): 
+        try: 
+            model = scipy.io.loadmat(filename)['model_simulation_DE']
+        except: 
+            return None
+        print "-Found 3D DepthEmbedding forward model file: %s - not recomputing it."%filename
+        self.forward_model_DE = model
+        return model
+
+    def load_forward_model_MLEEM(self, filename='./model_simulation_MLEEM.mat'): 
+        try: 
+            model = scipy.io.loadmat(filename)['model_simulation_MLEEM']
+        except: 
+            return None
+        print "-Found 3D DepthEmbedding+MLEEM forward model file: %s - not recomputing it."%filename
+        self.forward_model_MLEEM = model
+        return model
+
+    def save_forward_model_2D(self, filename='./model_simulation_2D.mat'): 
+        scipy.io.savemat(filename, {'model_simulation_2D':self.forward_model_2D})
+
+    def save_forward_model_DE(self, filename='./model_simulation_DE.mat'): 
+        scipy.io.savemat(filename, {'model_simulation_DE':self.forward_model_DE})
+ 
+    def save_forward_model_MLEEM(self, filename='./model_simulation_MLEEM.mat'): 
+        scipy.io.savemat(filename, {'model_simulation_MLEEM':self.forward_model_MLEEM})
+
     def run(self): 
-        pass 
+        print "-Estimating the forward model 2D .."
+        if self.load_forward_model_2D() is None: 
+            self.estimate_forward_model_2D() 
+            self.save_forward_model_2D()
+        print "-Estimating the forward model DepthEmbedding .."
+        if self.load_forward_model_DE() is None: 
+            self.estimate_forward_model_DE() 
+            self.save_forward_model_DE() 
+        print "-Estimating the forward model MLEEM .."
+        if self.load_forward_model_MLEEM() is None:
+            self.estimate_forward_model_MLEEM() 
+            self.save_forward_model_MLEEM() 
+        print "-Loading 2D test grid"
+        self.load_test_grid([0,5,10,15,20,25,30], [0,5,10,15,20,25,30])
+        print "-Reconstruction using centroid algorithm"
+        self.reconstruct_grid_centroid()
+        print "-Reconstruction using 2D maximum-a-posteriori"
+        self.reconstruct_grid_2D_MAP()
+        print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding model)"
+        self.reconstruct_grid_3D_MAP_DE()
+        print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding + MLEE model)"
+        self.reconstruct_grid_3D_MAP_MLEEM()
+
+        print "Computing Bias and Variance"
+        self.compute_bias_and_variance() 
+        print "Visualizing results"
+        self.visualize_results() 
+        print "TestSimulation Done"
     
 
 
@@ -735,9 +909,9 @@ if __name__ == "__main__":
     cmice = TestCmice()
     cmice.run() 
     
-    print "-- Running monolithic gamma camera simulation .."
-    simulation = TestSimulation()
-    sumulation.run()
+    #print "-- Running monolithic gamma camera simulation .."
+    #simulation = TestSimulation()
+    #sumulation.run()
     
     print "-- Done"
 
