@@ -563,6 +563,8 @@ class StatsCoordinates():
         print "----------------------------------------------------"
 
     def plot_depth_density(self, fig=None): 
+        n_points_x = len(self.groundtruth_coordinates)
+        n_points_y = len(self.groundtruth_coordinates[0])
         if not self.is_3D: 
             print "StatsCoordinates: the coordinates are 2D, no depth information to display"
             return 
@@ -649,6 +651,59 @@ class TestCmice():
         self.forward_model_MLEEM = model
         return model
 
+    def load_reconstructions_2D_MAP(self, filename='./coordinates_2D_MAP.mat'): 
+        try: 
+            coords = scipy.io.loadmat(filename)['coordinates_2D_MAP']
+            energy = scipy.io.loadmat(filename)['energy_2D_MAP']
+        except: 
+            return None
+        print "-Found 2D MAP reconstructed coordinates file: %s - not recomputing them."%filename
+        for ix in range(len(coords)): 
+            for iy in range(len(coords[0])):
+                # for some reason, scipy.io.savemat adds an extra layer in the list, get read of it: 
+                coords[ix][iy][0] = coords[ix][iy][0][0]
+                coords[ix][iy][1] = coords[ix][iy][1][0]
+                energy[ix][iy] = energy[ix][iy][0]
+        self.coordinates_2D_MAP = coords
+        self.energy_2D_MAP = energy
+        return coords, energy
+
+    def load_reconstructions_3D_MAP_DE(self, filename='./coordinates_3D_MAP_DE.mat'): 
+        try: 
+            coords = scipy.io.loadmat(filename)['coordinates_3D_MAP_DE']
+            energy = scipy.io.loadmat(filename)['energy_3D_MAP_DE']
+        except: 
+            return None
+        print "-Found 3D MAP DepthEmbedding reconstructed coordinates file: %s - not recomputing them."%filename
+        for ix in range(len(coords)): 
+            for iy in range(len(coords[0])):
+                # for some reason, scipy.io.savemat adds an extra layer in the list, get read of it: 
+                coords[ix][iy][0] = coords[ix][iy][0][0]
+                coords[ix][iy][1] = coords[ix][iy][1][0]
+                coords[ix][iy][2] = coords[ix][iy][2][0]
+                energy[ix][iy] = energy[ix][iy][0]
+        self.coordinates_3D_MAP_DE = coords
+        self.energy_3D_MAP_DE = energy
+        return coords, energy
+
+    def load_reconstructions_3D_MAP_MLEEM(self, filename='./coordinates_3D_MAP_MLEEM.mat'): 
+        try: 
+            coords = scipy.io.loadmat(filename)['coordinates_3D_MAP_MLEEM']
+            energy = scipy.io.loadmat(filename)['energy_3D_MAP_MLEEM']
+        except: 
+            return None
+        print "-Found 3D MAP DepthEmbedding+MLEEM reconstructed coordinates file: %s - not recomputing them."%filename
+        for ix in range(len(coords)): 
+            for iy in range(len(coords[0])):
+                # for some reason, scipy.io.savemat adds an extra layer in the list, get read of it: 
+                coords[ix][iy][0] = coords[ix][iy][0][0]
+                coords[ix][iy][1] = coords[ix][iy][1][0]
+                coords[ix][iy][2] = coords[ix][iy][2][0]
+                energy[ix][iy] = energy[ix][iy][0]
+        self.coordinates_3D_MAP_MLEEM = coords
+        self.energy_3D_MAP_MLEEM = energy
+        return coords, energy
+
     def save_forward_model_2D(self, filename='./model_cmice_2D.mat'): 
         scipy.io.savemat(filename, {'model_cmice_2D':self.forward_model_2D})
 
@@ -657,6 +712,15 @@ class TestCmice():
  
     def save_forward_model_MLEEM(self, filename='./model_cmice_MLEEM.mat'): 
         scipy.io.savemat(filename, {'model_cmice_MLEEM':self.forward_model_MLEEM})
+
+    def save_reconstructions_2D_MAP(self, filename='./coordinates_2D_MAP.mat'): 
+        scipy.io.savemat('./coordinates_2D_MAP.mat', {'coordinates_2D_MAP':self.coordinates_2D_MAP,'energy_2D_MAP':self.energy_2D_MAP})
+
+    def save_reconstructions_3D_MAP_DE(self, filename='./coordinates_3D_MAP_DE.mat'): 
+        scipy.io.savemat('./coordinates_3D_MAP_DE.mat', {'coordinates_3D_MAP_DE':self.coordinates_3D_MAP_DE,'energy_3D_MAP_DE':self.energy_3D_MAP_DE})
+
+    def save_reconstructions_3D_MAP_MLEEM(self, filename='./coordinates_3D_MAP_MLEEM.mat'): 
+        scipy.io.savemat('./coordinates_3D_MAP_MLEEM.mat', {'coordinates_3D_MAP_MLEEM':self.coordinates_3D_MAP_MLEEM,'energy_3D_MAP_MLEEM':self.energy_3D_MAP_MLEEM})
 
     def estimate_forward_model_2D(self): 
         model = zeros([self.nx, self.ny, self.n_detectors])
@@ -714,74 +778,115 @@ class TestCmice():
 
     def reconstruct_grid_centroid(self): 
         self.coordinates_centroid = [] 
+        self.energy_centroid = []
         x_detectors = tile(linspace(0,9,8),(1,8))[0] - 4.5 
         y_detectors = repeat(linspace(0,9,8),8,axis=0) - 4.3
         reconstructor = ReconstructorCentroid(x_detectors=x_detectors, y_detectors=y_detectors, x_max=self.nx-1, y_max=self.ny-1, shift=2.7, scale=5.3, exponent=1.0)  
-        self.histogram_centroid = HistogramCoordinates(self.nx, self.ny)
-        self.spectrum_centroid = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
-            row = [] 
+            row_coordinates = [] 
+            row_energy = []
             for iy in range(self.grid_shape[1]):
                 data = self.grid[ix][iy]
                 [xrec,yrec,energyrec] = reconstructor.reconstruct(data) 
-                row.append([xrec,yrec])
+                row_coordinates.append([xrec,yrec])
+                row_energy.append(energyrec)
+            self.coordinates_centroid.append(row_coordinates)
+            self.energy_centroid.append(row_energy) 
+        return self.coordinates_centroid
+
+    def make_histograms_centroid(self): 
+        self.histogram_centroid = HistogramCoordinates(self.nx, self.ny)
+        self.spectrum_centroid = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
+        for ix in range(self.grid_shape[0]): 
+            for iy in range(self.grid_shape[1]):
+                [xrec,yrec] = self.coordinates_centroid[ix][iy]
+                energyrec = self.energy_centroid[ix][iy]
                 self.histogram_centroid.add_data([xrec,yrec])
                 self.spectrum_centroid.add_data(energyrec)
-            self.coordinates_centroid.append(row)
-        return self.coordinates_centroid
 
     def reconstruct_grid_2D_MAP(self): 
         self.coordinates_2D_MAP = []
+        self.energy_2D_MAP = []
         reconstructor = ReconstructorMAP(self.forward_model_2D)  
-        self.histogram_2D_MAP = HistogramCoordinates(self.nx, self.ny)
-        self.spectrum_2D_MAP = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
             self.print_percentage(ix,self.grid_shape[0])
-            row = []
+            row_coordinates = []
+            row_energy = []
             for iy in range(self.grid_shape[1]):
                 data = self.grid[iy][ix]
                 [xrec,yrec,energyrec] = reconstructor.reconstruct(data) 
-                row.append([xrec,yrec])
+                row_coordinates.append([xrec,yrec])
+                row_energy.append(energyrec)
+            self.coordinates_2D_MAP.append(row_coordinates)
+            self.energy_2D_MAP.append(row_energy)
+        return self.coordinates_2D_MAP
+    
+    def make_histograms_2D_MAP(self): 
+        self.histogram_2D_MAP = HistogramCoordinates(self.nx, self.ny)
+        self.spectrum_2D_MAP = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
+        for ix in range(self.grid_shape[0]): 
+            for iy in range(self.grid_shape[1]):
+                [xrec,yrec] = self.coordinates_2D_MAP[ix][iy]
+                energyrec = self.energy_2D_MAP[ix][iy]
                 self.histogram_2D_MAP.add_data([xrec,yrec])
                 self.spectrum_2D_MAP.add_data(energyrec)
-            self.coordinates_2D_MAP.append(row)
-        return self.coordinates_2D_MAP
 
     def reconstruct_grid_3D_MAP_DE(self): 
         self.coordinates_3D_MAP_DE = []
+        self.energy_3D_MAP_DE = []
         reconstructor = ReconstructorMAP(self.forward_model_DE)  
         reconstructor.set_prior(self.prior)
+        for ix in range(self.grid_shape[0]): 
+            self.print_percentage(ix,self.grid_shape[0])
+            row_coordinates = []
+            row_energy = []
+            for iy in range(self.grid_shape[1]):
+                data = self.grid[iy][ix]
+                [xrec,yrec,zrec,energyrec] = reconstructor.reconstruct(data) 
+                row_coordinates.append([xrec,yrec,zrec])
+                row_energy.append(energyrec)
+            self.coordinates_3D_MAP_DE.append(row_coordinates)
+            self.energy_3D_MAP_DE.append(row_energy)
+        return self.coordinates_3D_MAP_DE
+
+    def make_histograms_3D_MAP_DE(self):
         self.histogram_3D_MAP_DE = HistogramCoordinates(self.nx, self.ny, self.nz)
         self.spectrum_3D_MAP_DE = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
-            self.print_percentage(ix,self.grid_shape[0])
-            row = []
             for iy in range(self.grid_shape[1]):
-                data = self.grid[iy][ix]
-                [xrec,yrec,zrec,energyrec] = reconstructor.reconstruct(data) 
-                row.append([xrec,yrec,zrec])
+                [xrec,yrec,zrec] = self.coordinates_3D_MAP_DE[ix][iy]
+                energyrec = self.energy_3D_MAP_DE[ix][iy]
                 self.histogram_3D_MAP_DE.add_data([xrec,yrec,zrec])
                 self.spectrum_3D_MAP_DE.add_data(energyrec)
-            self.coordinates_3D_MAP_DE.append(row)
-        return self.coordinates_3D_MAP_DE
 
     def reconstruct_grid_3D_MAP_MLEEM(self): 
         self.coordinates_3D_MAP_MLEEM = []
+        self.energy_3D_MAP_MLEEM = []
         reconstructor = ReconstructorMAP(self.forward_model_MLEEM)  
         reconstructor.set_prior(self.prior)
-        self.histogram_3D_MAP_MLEEM = HistogramCoordinates(self.nx, self.ny, self.nz)
-        self.spectrum_3D_MAP_MLEEM = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
             self.print_percentage(ix,self.grid_shape[0])
-            row = []
+            row_coordinates = []
+            row_energy = []
             for iy in range(self.grid_shape[1]):
                 data = self.grid[iy][ix]
                 [xrec,yrec,zrec,energyrec] = reconstructor.reconstruct(data) 
-                row.append([xrec,yrec,zrec])
+                row_coordinates.append([xrec,yrec,zrec])
+                row_energy.append(energyrec)
+            self.coordinates_3D_MAP_MLEEM.append(row_coordinates)
+            self.energy_3D_MAP_MLEEM.append(row_energy)
+        return self.coordinates_3D_MAP_MLEEM
+
+    def make_histograms_3D_MAP_MLEEM(self):
+        self.histogram_3D_MAP_MLEEM = HistogramCoordinates(self.nx, self.ny, self.nz)
+        self.spectrum_3D_MAP_MLEEM = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
+        for ix in range(self.grid_shape[0]): 
+            for iy in range(self.grid_shape[1]):
+                [xrec,yrec,zrec] = self.coordinates_3D_MAP_MLEEM[ix][iy]
+                energyrec = self.energy_3D_MAP_MLEEM[ix][iy]
                 self.histogram_3D_MAP_MLEEM.add_data([xrec,yrec,zrec])
                 self.spectrum_3D_MAP_MLEEM.add_data(energyrec)
-            self.coordinates_3D_MAP_MLEEM.append(row)
-        return self.coordinates_3D_MAP_MLEEM
+
 
     def compute_bias_and_variance(self): 
         if self.coordinates_centroid is not None: 
@@ -851,12 +956,22 @@ class TestCmice():
         self.load_test_grid([0,5,10,15,20,25,30], [0,5,10,15,20,25,30])
         print "-Reconstruction using centroid algorithm"
         self.reconstruct_grid_centroid()
+        self.make_histograms_centroid()
         print "-Reconstruction using 2D maximum-a-posteriori"
-        self.reconstruct_grid_2D_MAP()
+        if self.load_reconstructions_2D_MAP() is None: 
+            self.reconstruct_grid_2D_MAP()
+            self.save_reconstructions_2D_MAP()
+        self.make_histograms_2D_MAP()
         print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding model)"
-        self.reconstruct_grid_3D_MAP_DE()
+        if self.load_reconstructions_3D_MAP_DE() is None: 
+            self.reconstruct_grid_3D_MAP_DE()
+            self.save_reconstructions_3D_MAP_DE()
+        self.make_histograms_3D_MAP_DE()
         print "-Reconstruction using 3D maximum-a-posteriori (DepthEmbedding + MLEE model)"
-        self.reconstruct_grid_3D_MAP_MLEEM()
+        if self.load_reconstructions_3D_MAP_MLEEM() is None: 
+            self.reconstruct_grid_3D_MAP_MLEEM()
+            self.save_reconstructions_3D_MAP_MLEEM()
+        self.make_histograms_3D_MAP_MLEEM()
         print "Computing Bias and Variance"
         self.compute_bias_and_variance() 
         print "Visualizing results"
