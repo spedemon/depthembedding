@@ -175,27 +175,47 @@ class BeerLambert():
 
 class EnergySpectrum():
     """Data structure to compute the histogram of the energy of the gamma photons."""
-    def __init__(self, min_energy=0, max_energy=1000, n_bins=100):
-        self.histogram = None 
+    def __init__(self, n_bins=50, min_energy=0, max_energy=None, scale=None, peak=511.0): 
+        """'min_energy' and 'max_energy' set the range; if not specified, they are set to the min and max of the data. 
+        'scale' pre-scales the energy. If 'scale' is set to 'auto', 
+        then the energy is scaled automatically to set the peak of the energy spectrum to 'peak'."""
+        self.histogram = None
         self.energy = None
         self.min_energy = min_energy
         self.max_energy = max_energy 
         self.n_bins = n_bins 
-    
+        self.peak = peak
+        self.scale = scale 
+
     def add_data(self, energies): 
-        [hist, energy] = histogram(energies, bins=self.n_bins, range=(self.min_energy,self.max_energy))
+        if self.scale is not None: 
+            if self.scale is not "auto":
+                energies = energies*self.scale                
         if self.histogram is None: 
+            if self.scale is "auto": 
+                [hist, energy] = histogram(energies, bins=self.n_bins, range=(energies.min(),energies.max()))
+                energy_max = energy[where(hist==hist.max())[0]]
+                scale = self.peak/energy_max
+                self.scale = scale 
+                energies = energies*self.scale  
+            if self.min_energy is None: 
+                self.min_energy = energies.min()
+            if self.max_energy is None: 
+                self.max_energy = energies.max() 
+            [hist, energy] = histogram(energies, bins=self.n_bins, range=(self.min_energy,self.max_energy))
             self.histogram = hist
+            self.energy = energy
         else: 
-            self.histogram = self.histogram + hist
-        self.energy = energy 
+            [hist, energy] = histogram(energies, bins=self.n_bins, range=(self.min_energy,self.max_energy))
+            self.histogram = self.histogram + hist 
     
     def get_spectrum(self): 
         return self.histogram, self.energy
 
-    def show(self): 
-        pylab.figure()
-        pylab.plot(self.histogram, self.energy)
+    def show(self, fig=None): 
+        fig = pylab.figure(fig)
+        pylab.plot(self.energy[0:-1], self.histogram)
+        return fig
 
 
 
@@ -228,7 +248,7 @@ class HistogramCoordinates():
     def get_histogram(self): 
         return self.histogram 
 
-    def show(self, depth=None, interpolation='nearest'):
+    def show(self, depth=None, interpolation='nearest', fig=None):
         """Display histogram using pylab. If histogram is 3D, 'depth' indicates depth. If 
         'depth = None', the function displays the mean of the histograms over the depth. """
         if self.is_2D(): 
@@ -236,9 +256,9 @@ class HistogramCoordinates():
         else: 
             if depth is None: 
                 image = self.get_histogram().mean(2)
-        pylab.figure()
+        fig = pylab.figure(fig)
         pylab.imshow(image, interpolation=interpolation)
-        pylab.show()
+        return fig
 
 
 
@@ -293,9 +313,11 @@ class Model2D():
     def _check_data(self, data): 
         return len(data.shape)==2
         
-    def visualize_model(self, x, y, reshape=(8,8)): 
+    def visualize_model(self, x, y, reshape=(8,8), fig=None): 
         m = self.forward_model[x,y,:].reshape(reshape)
+        fig = pylab.figure(fig)
         pylab.imshow(m)
+        return fig
 
 
 
@@ -394,7 +416,7 @@ class ModelDepthEmbedding():
         self.forward_model = forward_model
         return forward_model 
 
-    def visualize_manifold(self, nd=3): 
+    def visualize_manifold(self, nd=3, fig=None): 
         data = self.calibration_data
         N = data.shape[0]
         man = manifold.LocallyLinearEmbedding(self.n_neighbours, n_components=nd, method=self.lle_method) 
@@ -402,7 +424,7 @@ class ModelDepthEmbedding():
 
         from mpl_toolkits.mplot3d import Axes3D
         import matplotlib.pyplot as plt
-        fig = plt.figure()
+        fig = plt.figure(fig)
         ax = fig.add_subplot(111, projection='3d')
 
         color = zeros([self.nz,3]) 
@@ -426,13 +448,16 @@ class ModelDepthEmbedding():
         ax.set_ylabel('r2')
         ax.set_zlabel('r3')
         plt.show()
+        return fig
 
-    def visualize_model(self, depth=None, reshape=(8,8)): 
+    def visualize_model(self, depth=None, reshape=(8,8), fig=None): 
         if depth is None: 
             m = self.forward_model[:,:].mean(0).reshape(reshape)
         else: 
             m = self.forward_model[depth,:].reshape(reshape)
+        fig = pylab.figure(fig)
         pylab.imshow(m, resample='nearest')
+        return fig 
 
     def _check_data(self, data): 
         return len(data.shape)==2
@@ -484,12 +509,14 @@ class ModelMLEEM():
             return 
         self.prior = prior 
 
-    def visualize_model(self, x, y, depth=None, reshape=(8,8)): 
+    def visualize_model(self, x, y, depth=None, reshape=(8,8), fig=None): 
         if depth is None: 
             m = self.forward_model[x,y,:,:].mean(0).reshape(reshape)
         else: 
             m = self.forward_model[x,y,depth,:].reshape(reshape)
+        fig = pylab.figure(fig)
         pylab.imshow(m)
+        return fig
 
 
 
@@ -498,11 +525,13 @@ class ModelMLEEM():
 
 class StatsCoordinates(): 
     """Compute statistics of reconstructed coordinates of interaction - i.e. bias, std, errors."""
-    def __init__(self, recostructed_coordinates, groundtruth_coordinates, method_name=""):
+    def __init__(self, recostructed_coordinates, groundtruth_coordinates, coordinates_range, method_name=""):
         self.method_name = method_name 
         self.recostructed_coordinates = recostructed_coordinates
         self.groundtruth_coordinates = groundtruth_coordinates
         self.compute_stats() 
+        self.coordinates_range = coordinates_range 
+        self.is_3D = (len(self.recostructed_coordinates[0][0])==3) 
 
     def compute_stats(self):
         n_points_x = len(self.groundtruth_coordinates)
@@ -533,8 +562,19 @@ class StatsCoordinates():
         print "Error %s:  %f"%(self.method_name, self.Error) 
         print "----------------------------------------------------"
 
-
-
+    def plot_depth_density(self, fig=None): 
+        if not self.is_3D: 
+            print "StatsCoordinates: the coordinates are 2D, no depth information to display"
+            return 
+        n_points_per_bin = zeros(self.coordinates_range[2])
+        for ix in range(n_points_x): 
+            for iy in range(n_points_y): 
+                reconstructed = self.recostructed_coordinates[ix][iy]
+                reconstructed_z = reconstructed[2]
+                n_points_per_bin += histogram(reconstructed_z,bins=self.coordinates_range[2])[0]
+        fig = pylab.figure()
+        pylab.plot(range(self.coordinates_range[2]), n_points_per_bin)
+        return fig
 
 
 def get_data_cmice(x,y,path="./data_ftp/cmice_data/20140508_ZA0082/test_data/"): 
@@ -678,7 +718,7 @@ class TestCmice():
         y_detectors = repeat(linspace(0,9,8),8,axis=0) - 4.3
         reconstructor = ReconstructorCentroid(x_detectors=x_detectors, y_detectors=y_detectors, x_max=self.nx-1, y_max=self.ny-1, shift=2.7, scale=5.3, exponent=1.0)  
         self.histogram_centroid = HistogramCoordinates(self.nx, self.ny)
-        self.spectrum_centroid = EnergySpectrum() 
+        self.spectrum_centroid = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
             row = [] 
             for iy in range(self.grid_shape[1]):
@@ -694,7 +734,7 @@ class TestCmice():
         self.coordinates_2D_MAP = []
         reconstructor = ReconstructorMAP(self.forward_model_2D)  
         self.histogram_2D_MAP = HistogramCoordinates(self.nx, self.ny)
-        self.spectrum_2D_MAP = EnergySpectrum()
+        self.spectrum_2D_MAP = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
             self.print_percentage(ix,self.grid_shape[0])
             row = []
@@ -712,7 +752,7 @@ class TestCmice():
         reconstructor = ReconstructorMAP(self.forward_model_DE)  
         reconstructor.set_prior(self.prior)
         self.histogram_3D_MAP_DE = HistogramCoordinates(self.nx, self.ny, self.nz)
-        self.spectrum_3D_MAP_DE = EnergySpectrum()
+        self.spectrum_3D_MAP_DE = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
             self.print_percentage(ix,self.grid_shape[0])
             row = []
@@ -730,7 +770,7 @@ class TestCmice():
         reconstructor = ReconstructorMAP(self.forward_model_MLEEM)  
         reconstructor.set_prior(self.prior)
         self.histogram_3D_MAP_MLEEM = HistogramCoordinates(self.nx, self.ny, self.nz)
-        self.spectrum_3D_MAP_MLEEM = EnergySpectrum()
+        self.spectrum_3D_MAP_MLEEM = EnergySpectrum(scale="auto", peak=511.0, max_energy=1500) 
         for ix in range(self.grid_shape[0]): 
             self.print_percentage(ix,self.grid_shape[0])
             row = []
@@ -745,17 +785,20 @@ class TestCmice():
 
     def compute_bias_and_variance(self): 
         if self.coordinates_centroid is not None: 
-            stats_centroid = StatsCoordinates(self.coordinates_centroid, self.grid_locations, "Centroid")
+            stats_centroid = StatsCoordinates(self.coordinates_centroid, self.grid_locations, [self.nx,self.ny], "Centroid")
             stats_centroid.print_summary()
         if self.coordinates_2D_MAP is not None: 
-            stats_2D_MAP = StatsCoordinates(self.coordinates_2D_MAP, self.grid_locations, "2D MAP")
+            stats_2D_MAP = StatsCoordinates(self.coordinates_2D_MAP, self.grid_locations, [self.nx,self.ny], "2D MAP")
             stats_2D_MAP.print_summary()
         if self.coordinates_3D_MAP_DE is not None: 
-            stats_3D_MAP_DE = StatsCoordinates(self.coordinates_3D_MAP_DE, self.grid_locations, "3D MAP DepthEmbedding")
+            stats_3D_MAP_DE = StatsCoordinates(self.coordinates_3D_MAP_DE, self.grid_locations, [self.nx,self.ny,self.nz], "3D MAP DepthEmbedding")
             stats_3D_MAP_DE.print_summary()
+            stats_3D_MAP_DE.plot_depth_density(6)
         if self.coordinates_3D_MAP_MLEEM is not None: 
-            stats_3D_MAP_MLEEM = StatsCoordinates(self.coordinates_3D_MAP_MLEEM, self.grid_locations, "3D MAP DepthEmbedding+MLEEM")
+            stats_3D_MAP_MLEEM = StatsCoordinates(self.coordinates_3D_MAP_MLEEM, self.grid_locations, [self.nx,self.ny,self.nz], "3D MAP DepthEmbedding+MLEEM")
             stats_3D_MAP_MLEEM.print_summary()
+            stats_3D_MAP_MLEEM.plot_depth_density(6)
+            
 
     def visualize_results(self): 
         # Visualize manifold: 
@@ -770,7 +813,7 @@ class TestCmice():
         model_estimator.estimate_forward_model() 
         model_estimator.visualize_manifold(nd=3)
 
-        # Visualize histograms: 
+        # Visualize histograms of the locations of interaction: 
         if self.coordinates_centroid is not None: 
             self.histogram_centroid.show()
         if self.coordinates_2D_MAP is not None: 
@@ -779,6 +822,17 @@ class TestCmice():
             self.histogram_3D_MAP_DE.show()
         if self.coordinates_3D_MAP_MLEEM is not None: 
             self.histogram_3D_MAP_MLEEM.show()
+        
+        # Visualize histograms of the energy: 
+        if self.spectrum_centroid is not None: 
+            self.spectrum_centroid.show(5)
+        if self.spectrum_2D_MAP is not None: 
+            self.spectrum_2D_MAP.show(5)
+        if self.spectrum_3D_MAP_DE is not None: 
+            self.spectrum_3D_MAP_DE.show(5)
+        if self.spectrum_3D_MAP_MLEEM is not None: 
+            self.spectrum_3D_MAP_MLEEM.show(5)
+
 
     def run(self): 
         print "-Estimating the forward model 2D .."
