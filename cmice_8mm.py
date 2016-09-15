@@ -228,10 +228,13 @@ class Cmice_8mm():
                 calibration_data = self.get_data_grid(ix,iy)
                 filter = LikelihoodFilter(self.forward_model_2D)
                 calibration_data_filtered, rejected = filter.filter(calibration_data, ix,iy, points = self.n_training) 
+                print "Number of points for location %d,%d:"%(ix,iy),calibration_data_filtered.shape[0]
                 model_estimator = ModelDepthEmbedding(nz=self.nz, n_neighbours=self.n_neighbours)
                 model_estimator.set_calibration_data(calibration_data_filtered)
-                model_estimator.set_depth_prior(self.prior)
-                model[ix,iy,:,:] = model_estimator.estimate_forward_model() 
+                model_estimator.set_depth_prior(self.prior) 
+                m = model_estimator.estimate_forward_model(unit_norm=False, zero_mean=False) 
+                print "Max expected signal:    z=0: %2.2f    z=%d: %2.2f"%(m[0,:].max(), self.nz-1, m[self.nz-1,:].max())
+                model[ix,iy,:,:] = m 
         self.forward_model_DE = model 
         return self.forward_model_DE
     
@@ -246,7 +249,7 @@ class Cmice_8mm():
                 model_estimator = ModelMLEEM(initial_model=self.forward_model_DE[ix,iy,:,:])
                 model_estimator.set_calibration_data(calibration_data_filtered) 
                 model_estimator.set_depth_prior(self.prior) 
-                model[ix,iy,:,:] = model_estimator.estimate_forward_model() 
+                model[ix,iy,:,:] = model_estimator.estimate_forward_model(n_max_iterations=200, method='soft', smoothness=0.0, prune=False) 
         self.forward_model_MLEEM = model 
         return self.forward_model_MLEEM
 

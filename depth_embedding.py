@@ -13,6 +13,7 @@ from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze,
 from numpy import log, tile, float32, argsort, int32, histogram, linspace, round, exp, convolve, sqrt, mgrid
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
+import scipy.ndimage
 
 import os 
 import sys 
@@ -27,16 +28,37 @@ EPS = 1e-9
 class ReconstructorMAP(): 
     """Maximum a-posteriori estimation of the coordinates of interaction and energy
     of a gamma photon (2D and 3D)."""
-    def __init__(self, forward_model): 
+    def __init__(self, forward_model, noise_model='poisson'): 
         self.forward_model = forward_model 
         self._nd = len(self.forward_model.shape)-1
         self.prior = None
+        self.probability_z = None
+        self.unit_norm = 0
+        self.zero_mean = 0
+        self.unit_norm_fw = 0
+        self.zero_mean_fw = 0
+        self.noise_model = noise_model
 
     def is_3D(self):
         return self._nd == 3 
 
     def set_prior(self, prior): 
         self.prior = prior 
+
+    def set_zero_mean(self, v): 
+        self.zero_mean = v
+    
+    def set_unit_norm(self, v): 
+        self.unit_norm = v
+
+    def set_zero_mean_fw(self, v): 
+        self.zero_mean_fw = v
+    
+    def set_unit_norm_fw(self, v): 
+        self.unit_norm_fw = v
+
+    def set_noise_model(self, noise_model): 
+        self.noise_model = noise_model 
 
     def _print_percentage(self, batch, n_batches):
         percent = int32(100.0*(1.0*batch+1.0)/n_batches)
@@ -55,14 +77,32 @@ class ReconstructorMAP():
     def reconstruct(self, data, batch_size=0): 
         N = data.shape[0]
         data_size = data.shape[1]
+
+        if self.zero_mean: 
+            data = data - np.repeat(data.mean(1).reshape([N,1]),data_size,axis=1)
+        if self.unit_norm: 
+            data = data / np.repeat(np.linalg.norm(data,2,1).reshape([N,1]),data_size,axis=1)
+
+        forward_model = self.forward_model 
+        if self.zero_mean_fw: 
+            if self.is_3D():
+                forward_model = forward_model - np.repeat(forward_model.sum(3).reshape([forward_model.shape[0],forward_model.shape[1],forward_model.shape[2],1]),forward_model.shape[3],axis=3)
+            else: 
+                forward_model = forward_model - np.repeat(forward_model.sum(2).reshape([forward_model.shape[0],forward_model.shape[1],1]),forward_model.shape[2],axis=2)
+        if self.unit_norm_fw: 
+            if self.is_3D():
+                forward_model = forward_model / np.repeat(np.linalg.norm(forward_model,2,3).reshape([forward_model.shape[0],forward_model.shape[1],forward_model.shape[2],1]),forward_model.shape[3],axis=3)
+            else: 
+                forward_model = forward_model / np.repeat(np.linalg.norm(forward_model,2,2).reshape([forward_model.shape[0],forward_model.shape[1],1]),forward_model.shape[2],axis=2)
+
         if batch_size is 0: 
             batch_size = N
         if self.is_3D(): 
             # 3D reconstruction 
-            Nx = self.forward_model.shape[0]
-            Ny = self.forward_model.shape[1]
-            Nz = self.forward_model.shape[2]
-            L = self.forward_model.reshape(Nx*Ny*Nz,data_size).T
+            Nx = forward_model.shape[0]
+            Ny = forward_model.shape[1]
+            Nz = forward_model.shape[2]
+            L = forward_model.reshape(Nx*Ny*Nz,data_size).T
             logL = log(L+EPS) 
             logSumL = log(L.sum(0)+EPS) 
             
@@ -81,6 +121,7 @@ class ReconstructorMAP():
             Energy = zeros(N)
             LogPosterior = zeros(N)
             Indexes = zeros(N)
+            log_probability_z = zeros([N,Nz])
 
             print ""
             for i_batch in range(n_batches): 
@@ -92,27 +133,38 @@ class ReconstructorMAP():
                 index_start = i_batch * batch_size
                 index_end   = index_start + current_batch_size
                 D = data[index_start:index_end,:]
-                sumD = D.sum(1) 
-                logD = tile(logSumL,(current_batch_size,1)) * tile(sumD,(Nx*Ny*Nz,1)).T
-                logposterior = D.dot(logL) - logD + tile(logPrior.reshape(((1,Nx*Ny*Nz))),(current_batch_size,1))
+                if self.noise_model is 'poisson': 
+                    sumD = D.sum(1) 
+                    logD = tile(logSumL,(current_batch_size,1)) * tile(sumD,(Nx*Ny*Nz,1)).T
+                    loglikelihood = D.dot(logL) - logD
+                else: 
+                    pass
+#                    loglikelihood = ... #FIXME: implement Gaussian model 
+                logposterior = loglikelihood + tile(logPrior.reshape(((1,Nx*Ny*Nz))),(current_batch_size,1)) 
+                #print logPrior.shape, 'value z:', logPrior[0,0,0:10]
+                #print logposterior.sum(), D.dot(logL).sum(), logD.sum(), tile(logPrior.reshape(((1,Nx*Ny*Nz))),(current_batch_size,1)).sum()
                 index = int32(argsort(logposterior,axis=1))
                 I = index[:,-1]
-                #print logposterior.shape, I.shape, logposterior[range(len(I)),I].shape
                 [x,y,z] = unravel_index(I,[Nx,Ny,Nz])
                 X[index_start:index_end] = x
                 Y[index_start:index_end] = y
                 Z[index_start:index_end] = z 
-                suml = self.forward_model[x,y,z,:].sum(1)
+                suml = forward_model[x,y,z,:].sum(1)
                 Energy[index_start:index_end] = sumD/suml
-                #Indexes[i_batch*batch_size:(i_batch+1)*batch_size] = I
                 LogPosterior[index_start:index_end] = logposterior[range(len(I)),I]
+                if Nx==1 and Ny==1: 
+                    log_probability_z[index_start:index_end,:] = logposterior
             print ""
+            self.log_probability_z = log_probability_z
+            p = np.exp(self.log_probability_z-np.tile(self.log_probability_z.max(1).reshape([self.log_probability_z.shape[0],1]), (1,self.log_probability_z.shape[1])))
+            p = p / np.tile(p.sum(1).reshape([p.shape[0],1]), (1,p.shape[1]))
+            self.probability_z = p
             return X, Y, Z, Energy, LogPosterior
         else: 
             # 2D reconstruction 
-            Nx = self.forward_model.shape[0]
-            Ny = self.forward_model.shape[1]
-            L = self.forward_model.reshape(Nx*Ny,data_size).T
+            Nx = forward_model.shape[0]
+            Ny = forward_model.shape[1]
+            L = forward_model.reshape(Nx*Ny,data_size).T
             logL = log(L+EPS) 
             logSumL = log(L.sum(0)+EPS) 
             
@@ -152,7 +204,7 @@ class ReconstructorMAP():
                 [x,y] = unravel_index(I,[Nx,Ny])
                 X[index_start:index_end] = x
                 Y[index_start:index_end] = y
-                suml = self.forward_model[x,y,:].sum(1)
+                suml = forward_model[x,y,:].sum(1)
                 Energy[index_start:index_end] = (sumD+EPS)/(suml+EPS)
                 #Indexes[index_start:index_end] = I
                 LogPosterior[index_start:index_end] = logposterior[range(len(I)),I]
@@ -556,29 +608,38 @@ class ModelDepthEmbedding():
         data_1d = data_1d-data_1d.min()
         data_1d = data_1d/data_1d.max()
         data_1d = data_1d-data_1d.mean()
-        data_1d_s = sort(data_1d)
         s = argsort(data_1d) 
-
+        data_1d_s = data_1d[s]
+        
         #print "3-Determining the orientation of the manifold.."
         distance_points = self.manifold.nbrs_.kneighbors(data)[0].sum(1)
         manifold_density = 1.0 / convolve(sqrt(distance_points[s]),ones([5*self.n_neighbours]), mode='valid') 
-        L = len(manifold_density)
-        if unit_norm:  # If normalizing the norm of the data vectors, the manifold density is inverted 
-            if (manifold_density[0:L/2].mean() >= manifold_density[-L/2::].mean()): 
-                invert = 1 
-                data_1d = -data_1d
-                data_1d_s = -flipud(data_1d_s)
-                s = flipud(s) 
-            else: 
-                invert = 0 
-        else:
-            if (manifold_density[0:L/2].mean() < manifold_density[-L/2::].mean()): 
-                invert = 1 
-                data_1d = -data_1d
-                data_1d_s = -flipud(data_1d_s)
-                s = flipud(s) 
-            else: 
-                invert = 0 
+#        L = len(manifold_density)
+#        if (manifold_density[0:L/2].mean() >= manifold_density[-L/2::].mean()): 
+#            invert = 1 
+#            data_1d = -data_1d
+#            data_1d_s = -flipud(data_1d_s)
+#            s = flipud(s) 
+#        else: 
+#            invert = 0 
+#        if invert_manifold:  
+#            invert = 1 
+#            data_1d = -1.0*data_1d
+#            s = argsort(data_1d) 
+#            data_1d_s = data_1d[s]
+#        else:
+#            invert = 0
+        datas = data[s,:]
+        d0 = datas[0:200,:].mean(0).max()
+        d1 = datas[-200::,:].mean(0).max()
+        if d0 > d1: 
+            data_1d = -1.0*data_1d
+            s = argsort(data_1d) 
+            data_1d_s = data_1d[s]  
+            self.invert = 1
+            print "## Inverted manifold"  
+        else: 
+            self.invert = 0 
 
         #print "4-Depth mapping.."   
         # Depth mapping - determine boundaries 
@@ -607,7 +668,6 @@ class ModelDepthEmbedding():
         self.data_1d = data_1d
         self.data_1d_s = data_1d_s
         self.s = s 
-        self.invert = invert
         self.manifold_density = manifold_density
         
         # Don't allow negative values 
@@ -696,30 +756,114 @@ class ModelMLEEM():
         self.prior = None
         self.set_initial_model(initial_model)
 
-    def estimate_forward_model(self, method="hard_plus_smoothing", n_max_iterations=15, smoothness=0.2): 
-        nz = self.initial_model.shape[0]
-        n_detectors = self.initial_model.shape[1]
+    def estimate_forward_model(self, method="hard_plus_smoothing", n_max_iterations=5, smoothness=0.2, prune=True): 
+        nz = self.initial_model.shape[2]
+        n_detectors = self.initial_model.shape[3]
         forward_model = self.initial_model.copy()
         if method is "hard": 
             for i in range(n_max_iterations): 
                 reconstructor = ReconstructorMAP(forward_model) 
                 reconstructor.set_prior(self.prior) 
                 [xrec,yrec,zrec,energyrec,posterior] = reconstructor.reconstruct(self.calibration_data) 
+                probability_z = reconstructor.probability_z
+
+                if prune:
+                    # sort data according to posterior probability 
+                    I = np.flipud(np.argsort(posterior))
+                    zrec_sort = zrec[I]
+                    data_sort = self.calibration_data[I,:]
+                    # keep the minimum number of data points (the most probable ones) for histogram to match the prior 
+                    hist, bins = np.histogram(zrec,nz)
+                    #print "hist",hist
+                    histn = (1.0*hist) / hist.sum()
+                    #print "histn",histn
+                    ratio = histn/self.prior 
+                    #print "ratio",ratio
+                    keep  = np.floor(((1.0*hist[where(ratio==ratio.min())]) / self.prior[where(ratio==ratio.min())])*self.prior)
+                    ns = 0; ne = 0;
+                    data_keep = zeros([keep.sum(),n_detectors])
+                    for z in range(nz): 
+                        ne=ne+keep[z];
+                        data_keep[ns:ne,:]= data_sort[zrec_sort==z,:][0:keep[z],:]
+                        ns=1*ne
+                    [xrec,yrec,zrec,energyrec,posterior] = reconstructor.reconstruct(data_keep) 
+                else: 
+                    data_keep = self.calibration_data
+
                 for z in range(nz): 
                     indexes = where(zrec==z)[0]
-                    forward_model[0,0,z,:] = self.calibration_data[indexes,:].sum(0)/len(indexes)
+                    forward_model[0,0,z,:] = data_keep[indexes,:].sum(0)/len(indexes)
+                    
         elif method is "soft": 
             for i in range(n_max_iterations): 
-                pass # FIXME-implement
+                reconstructor = ReconstructorMAP(forward_model) 
+                reconstructor.set_prior(self.prior) 
+                [xrec,yrec,zrec,energyrec,posterior] = reconstructor.reconstruct(self.calibration_data) 
+                probability_z = reconstructor.probability_z
+
+                if prune:
+                    # sort data according to posterior probability 
+                    I = np.flipud(np.argsort(posterior))
+                    zrec_sort = zrec[I]
+                    data_sort = self.calibration_data[I,:]
+                    # keep the minimum number of data points (the most probable ones) for histogram to match the prior 
+                    hist, bins = np.histogram(zrec,nz)
+                    #print "hist",hist
+                    histn = (1.0*hist) / hist.sum()
+                    #print "histn",histn
+                    ratio = histn/self.prior 
+                    #print "ratio",ratio
+                    keep  = np.floor(((1.0*hist[where(ratio==ratio.min())]) / self.prior[where(ratio==ratio.min())])*self.prior)
+                    ns = 0; ne = 0;
+                    data_keep = zeros([keep.sum(),n_detectors])
+                    for z in range(nz): 
+                        ne=ne+keep[z];
+                        data_keep[ns:ne,:]= data_sort[zrec_sort==z,:][0:keep[z],:]
+                        ns=1*ne
+                    [xrec,yrec,zrec,energyrec,posterior] = reconstructor.reconstruct(data_keep) 
+                    probability_z = reconstructor.probability_z
+                    print "%d data points discarded (%2.2f%%)"%(self.calibration_data.shape[0] - data_keep.shape[0],(100.0*(self.calibration_data.shape[0] - data_keep.shape[0])/self.calibration_data.shape[0]) )
+                else: 
+                    data_keep = self.calibration_data
+                 
+                if smoothness > 1e-9: 
+                    probability_z = scipy.ndimage.filters.gaussian_filter1d(probability_z, sigma=smoothness, mode='reflect', axis=1)
+                for z in range(nz): 
+                    indexes = where(zrec==z)[0]
+                    normalization = tile(probability_z.sum(0)[z], n_detectors) 
+                    forward_model[0,0,z,:] = (data_keep * np.tile(probability_z[:,z].reshape(data_keep.shape[0],1), (1,n_detectors)) ).sum(0) / normalization
+
         elif method is "hard_plus_smoothing":
             for i in range(n_max_iterations): 
                 reconstructor = ReconstructorMAP(forward_model) 
                 reconstructor.set_prior(self.prior) 
                 [xrec,yrec,zrec,energyrec,posterior] = reconstructor.reconstruct(self.calibration_data) 
+
+                if prune:
+                    # sort data according to posterior probability 
+                    I = np.flipud(np.argsort(posterior))
+                    zrec_sort = zrec[I]
+                    data_sort = self.calibration_data[I,:]
+                    # keep the minimum number of data points (the most probable ones) for histogram to match the prior 
+                    hist, bins = np.histogram(zrec,nz)
+                    histn = (1.0*hist) / hist.sum()
+                    ratio = histn/self.prior 
+                    keep  = np.floor(((1.0*hist[where(ratio==ratio.min())]) / self.prior[where(ratio==ratio.min())])*self.prior)
+                    ns = 0; ne = 0;
+                    data_keep = zeros([keep.sum(),n_detectors])
+                    for z in range(nz): 
+                        ne=ne+keep[z];
+                        data_keep[ns:ne,:]= data_sort[zrec_sort==z,:][0:keep[z],:]; #print ns,ne,ne-ns,keep[i]
+                        ns=1*ne
+                    [xrec,yrec,zrec,energyrec,posterior] = reconstructor.reconstruct(data_keep)
+                else: 
+                    data_keep = self.calibration_data
+
                 for z in range(nz): 
                     indexes = where(zrec==z)[0]
-                    forward_model[0,0,z,:] = self.calibration_data[indexes,:].sum(0)/len(indexes)  
+                    forward_model[0,0,z,:] = data_keep[indexes,:].sum(0)/len(indexes)  
                 forward_model = scipy.ndimage.filters.gaussian_filter1d(forward_model, sigma=smoothness, mode='reflect',axis=2)
+                    
         self.forward_model = forward_model 
         self.xrec = xrec
         self.yrec = yrec 

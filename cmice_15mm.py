@@ -311,12 +311,13 @@ class Cmice_15mm():
                 calibration_data = self.get_data_grid(ix,iy)
                 filter = LikelihoodFilter(self.forward_model_2D)
                 calibration_data_filtered, rejected = filter.filter(calibration_data, ix,iy, method="near_coordinates", points=self.n_training) 
-                print "number of points for location %d,%d:"%(ix,iy),calibration_data_filtered.shape[0]
+                print "Number of points for location %d,%d:"%(ix,iy),calibration_data_filtered.shape[0]
                 model_estimator = ModelDepthEmbedding(nz=self.nz, n_neighbours=self.n_neighbours)
                 model_estimator.set_calibration_data(calibration_data_filtered)
                 model_estimator.set_depth_prior(self.prior) 
-                model[ix,iy,:,:] = model_estimator.estimate_forward_model(unit_norm=False, zero_mean=False) 
-                
+                m = model_estimator.estimate_forward_model(unit_norm=False, zero_mean=False) 
+                print "Max expected signal:    z=0: %2.2f    z=%d: %2.2f"%(m[0,:].max(), self.nz-1, m[self.nz-1,:].max())
+                model[ix,iy,:,:] = m 
         self.forward_model_DE = model 
         return self.forward_model_DE
     
@@ -331,7 +332,7 @@ class Cmice_15mm():
                 model_estimator = ModelMLEEM(initial_model=self.forward_model_DE[ix,iy,:,:])
                 model_estimator.set_calibration_data(calibration_data_filtered) 
                 model_estimator.set_depth_prior(self.prior) 
-                model[ix,iy,:,:] = model_estimator.estimate_forward_model() 
+                model[ix,iy,:,:] = model_estimator.estimate_forward_model(n_max_iterations=20, method='soft', smoothness=0.0, prune=False) 
         self.forward_model_MLEEM = model
         if sigma_smoothness > 1e-9: 
             print "MLE-EM smoothness refinement .."
@@ -400,7 +401,7 @@ class Cmice_15mm():
             self.grid.append(grid_row) 
         self.grid_shape = (len(x_locations),len(y_locations))
         print self.grid_shape
-        self.grid_locations = [tile(x_locations,(len(y_locations),1)).transpose(), tile(int32(y_locations).reshape((len(y_locations),1)),(1,len(x_locations))).transpose()]
+        self.grid_locations = [tile(x_locations,(len(y_locations),1)).transpose(), np.tile(np.int32(y_locations).reshape((len(y_locations),1)),(1,len(x_locations))).transpose()]
         return self.grid
 
     def load_test_45_degrees(self, indexes=None): 
@@ -454,7 +455,13 @@ class Cmice_15mm():
         self.coordinates_2D_MAP = []
         self.energy_2D_MAP = []
         self.likelihood_2D_MAP = []
-        reconstructor = ReconstructorMAP(self.forward_model_2D)  
+        reconstructor = ReconstructorMAP(self.forward_model_2D) 
+         
+        reconstructor.set_unit_norm(1)
+        #reconstructor.set_zero_mean(1)
+        #reconstructor.set_unit_norm_fw(1)
+        #reconstructor.set_zero_mean_fw(1)
+        
         for ix in range(self.grid_shape[0]): 
             #self.print_percentage(ix,self.grid_shape[0])
             row_coordinates = []
@@ -557,7 +564,7 @@ class Cmice_15mm():
             E = []
             L = []
             for iy in range(self.grid_shape[1]):
-                N = int32(len(self.coordinates_2D_MAP[ix][iy][0])*fraction)
+                N = np.int32(len(self.coordinates_2D_MAP[ix][iy][0])*fraction)
                 x = self.coordinates_2D_MAP[ix][iy][0]
                 y = self.coordinates_2D_MAP[ix][iy][1]
                 e = self.energy_2D_MAP[ix][iy]
@@ -583,7 +590,7 @@ class Cmice_15mm():
             E = []
             L = []
             for iy in range(self.grid_shape[1]):
-                N = int32(len(self.coordinates_3D_MAP_DE[ix][iy][0])*fraction)
+                N = np.int32(len(self.coordinates_3D_MAP_DE[ix][iy][0])*fraction)
                 x = self.coordinates_3D_MAP_DE[ix][iy][0]
                 y = self.coordinates_3D_MAP_DE[ix][iy][1]
                 z = self.coordinates_3D_MAP_DE[ix][iy][2]
@@ -611,7 +618,7 @@ class Cmice_15mm():
             E = []
             L = []
             for iy in range(self.grid_shape[1]):
-                N = int32(len(self.coordinates_3D_MAP_MLEEM[ix][iy][0])*fraction)
+                N = np.int32(len(self.coordinates_3D_MAP_MLEEM[ix][iy][0])*fraction)
                 x = self.coordinates_3D_MAP_MLEEM[ix][iy][0]
                 y = self.coordinates_3D_MAP_MLEEM[ix][iy][1]
                 z = self.coordinates_3D_MAP_MLEEM[ix][iy][2]
@@ -808,9 +815,9 @@ class Cmice_15mm():
         h = self.histogram_45_degrees_3D_MAP_DE.histogram
         z = scipy.ndimage.interpolation.zoom(h,zoom=((50.0/self.ny_resample)/(15.0/self.nz_resample),(50.0/self.ny_resample)/(15.0/self.nz_resample), 1.0 ))
         r = scipy.ndimage.interpolation.rotate(z, angle=-45.0, axes=(1,2))
-        v1 = r[:,:,int32((35.0*self.nx_resample)/self.nx):int32((45.0*self.nx_resample)/self.nx)].mean(2)[int32((23.5*self.nx_resample)/self.nx),:]
+        v1 = r[:,:,np.int32((35.0*self.nx_resample)/self.nx):np.int32((45.0*self.nx_resample)/self.nx)].mean(2)[np.int32((23.5*self.nx_resample)/self.nx),:]
         x1 = np.linspace(0,len(v1)*25.0/z.shape[0],len(v1))
-        v2 = r[:,:,int32((35.0*self.nx_resample)/self.nx):int32((45.0*self.nx_resample)/self.nx)].mean(2)[:,int32((27.0*self.nx_resample)/self.nx)]
+        v2 = r[:,:,np.int32((35.0*self.nx_resample)/self.nx):np.int32((45.0*self.nx_resample)/self.nx)].mean(2)[:,np.int32((27.0*self.nx_resample)/self.nx)]
         x2 = np.linspace(0,len(v2)*25.0/z.shape[0],len(v2))
         vn1 = v1/v1.sum()
         vn2 = v2/v2.sum()
@@ -818,7 +825,7 @@ class Cmice_15mm():
         print "Beam std X:   ",np.sqrt(((x2-(x2*vn2).sum())**2*vn2).sum())
         pl.figure()
         pl.subplot(1,2,1)
-        pl.imshow(r[:,:,int32((35.0*self.nx_resample)/self.nx):int32((45.0*self.nx_resample)/self.nx)].mean(2),cmap='hot')
+        pl.imshow(r[:,:,np.int32((35.0*self.nx_resample)/self.nx):np.int32((45.0*self.nx_resample)/self.nx)].mean(2),cmap='hot')
         pl.subplot(1,2,2)
         pl.imshow(r.sum(0),cmap='hot')
 
@@ -924,7 +931,7 @@ class Cmice_15mm():
         return get_data_cmice_45_degrees(index, path=self.input_data_path)
 
     def print_percentage(self,value,max_value):
-        print "Progress: %d%%"%int32((100*(value+1))/(max_value))
+        print "Progress: %d%%"%np.int32((100*(value+1))/(max_value))
 
 
 

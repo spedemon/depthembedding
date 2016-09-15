@@ -102,8 +102,8 @@ import cmice_15mm
 t = cmice_15mm.Cmice_15mm(nx_resample=26, ny_resample=49, nz_resample=20)
 f = t.load_forward_model_DE() 
 
-x = 21
-y = 34
+x = 26-22
+y = 49-34
 
 fig=plt.figure()
 fig.set_size_inches(5,5)
@@ -119,6 +119,21 @@ for z in range(nz):
     filename = path+'forward_model_%d_%d_%d.png'%(x,y,z)
     plt.savefig(filename, bbox_inches=extent)
     
+f = t.load_forward_model_2D() 
+
+fig=plt.figure()
+fig.set_size_inches(5,5)
+ax = plt.Axes(fig, [0., 0., 1., 1.])
+ax.set_axis_off()
+fig.add_axes(ax)
+plt.axis('off')
+
+image = f[x,y,:].reshape([8,8])
+plt.imshow(image, aspect='equal', interpolation='nearest',vmax=210, cmap='hot') 
+extent = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+filename = path+'estim_model_2D_%d_%d.png'%(x,y)
+plt.savefig(filename, bbox_inches=extent)
+
 ##############################################################################
 # Save images reconstructed forward models 
 ##############################################################################

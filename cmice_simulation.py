@@ -425,13 +425,17 @@ class CmiceSimulation_15mm():
         return forward_model
 
     def load_test_grid(self, x_locations, y_locations): 
-        self.grid = []
+        self.grid       = []
+        self.grid_depth = []
         for ix in x_locations: 
-            grid_row = [] 
+            data_row  = [] 
+            depth_row = []
             for iy in y_locations: 
                 data, depth = self.get_data_grid(ix,iy, N=self.n_testing)
-                grid_row.append(data)
-            self.grid.append(grid_row) 
+                data_row.append(data)
+                depth_row.append(depth)
+            self.grid.append(data_row) 
+            self.grid_depth.append(depth_row)
         self.grid_shape = (len(x_locations),len(y_locations))
         print self.grid_shape
         self.grid_locations = [tile(x_locations,(len(y_locations),1)).transpose(), tile(int32(y_locations).reshape((len(y_locations),1)),(1,len(x_locations))).transpose()]
