@@ -1,13 +1,19 @@
+# -*- coding: utf-8 -*-
+"""Experiments presented in DepthEmbedding article:
+Machine learning for the calibration of depth-of-interaction gamma-cameras. 
+Stefano Pedemonte, Larry Pierce, Koen Van Leemput. Physics in Medicine and Biology, 2017."""
+
+# Enable experiments with 8mm crystal - real data
+do_8mm  = True
+# Enable experiments with 15mm crystal - real data
+do_15mm = True
+# Enable simulation experiments
+do_simulation = True
 
 import cmice_simulation
 import depth_embedding
 import matplotlib.pyplot as plt
 import numpy as np 
-
-
-do_8mm  = False
-do_15mm = False 
-do_simulation = False
 
 #########################################################################################
 #########################################################################################
