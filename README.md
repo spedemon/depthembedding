@@ -8,7 +8,7 @@ The algorithm is described in [1].
 
 # How to use
 
-Download the two test data zip files from http://depthembedding.occiput.io, uncompressed them, then in the same folder run the 
+Download the two test data zip files from http://tomographylab.scienceontheweb.net/depthembedding/, uncompressed them, then in the same folder run the 
 following command:  
 python depth_embedding.py 
 
