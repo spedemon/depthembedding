@@ -20,6 +20,5 @@ If you utilize this code or its parts, please cite [1].
 
 # References
 
-[1] Machine learning for the calibration of depth-of-interaction gamma-cameras. Stefano Pedemonte, Larry Pierce, Koen Van Leemput. 
-Submitted to IEEE Transactions on Nuclear Science in Aug 2016. 
+[1] A machine learning method for fast and accurate characterization of depth-of-interaction gamma cameras. S. Pedemonte, L. Pierce, K. Van Leemput, Physics in Medicine and Biology, October 2017, 19,62(21):8376-8401. https://www.ncbi.nlm.nih.gov/pubmed/28436919
 
