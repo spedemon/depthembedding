@@ -1,16 +1,22 @@
+# -*- coding: utf-8 -*-
+# Harvard Medical School, Martinos Center for Biomedical Imaging 
+# Aalto University, Department of Computer Science 
 
-# This software is part of Occiput - http://occiput.io 
-# March 2016
-# Stefano Pedemonte
-# Martinos Center for Biomedical Imaging, MGH, Boston, MA
+"""DepthEmbedding algorithm [1] for the calibratio of depth-of-interaction scintillation 
+cameras [1].
+ 
+[1] 'Machine learning for the calibration of depth-of-interaction gamma-cameras.'
+Stefano Pedemonte, Larry Pierce, Koen Van Leemput. 
+Physics in Medicine and Biology, 2017."""
 
 
 from sklearn import manifold 
 import scipy
 import scipy.io
 from scipy import stats
-from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze, fliplr, flipud
-from numpy import log, tile, float32, argsort, int32, histogram, linspace, round, exp, convolve, sqrt, mgrid
+from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze, fliplr
+from numpy import flipud, log, tile, float32, argsort, int32, histogram, linspace, round
+from numpy import exp, convolve, sqrt, mgrid
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 import scipy.ndimage
@@ -19,8 +25,6 @@ import os
 import sys 
 import pylab as pl
 pl.ion()
-
-
 
 EPS = 1e-9
 

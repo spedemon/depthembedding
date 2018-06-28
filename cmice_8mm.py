@@ -21,6 +21,7 @@ import scipy.io
 from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze, fliplr
 from numpy import flipud, log, tile, float32, argsort, int32, histogram, linspace, round
 from numpy import exp, convolve, sqrt, mgrid
+import scipy.ndimage.filters
 import numpy as np
 import copy
 import pylab as pl 

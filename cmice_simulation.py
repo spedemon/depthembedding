@@ -1,13 +1,26 @@
+# -*- coding: utf-8 -*-
+# Harvard Medical School, Martinos Center for Biomedical Imaging 
+# Aalto University, Department of Computer Science 
 
+"""Calibrate simulated cMiCE (Continuous Miniature Crystal Element, University of 
+Washington) gamma detector with 15mm scintillation crystal, using the DepthEmbedding 
+algorithm [1] and other methods for comparison (Centroid, 2D maximum-a-posteriori).
+ 
+[1] 'Machine learning for the calibration of depth-of-interaction gamma-cameras.'
+Stefano Pedemonte, Larry Pierce, Koen Van Leemput. 
+Physics in Medicine and Biology, 2017."""
 
 from depth_embedding import ReconstructorMAP, ReconstructorCentroid, get_cumulative_prior
-from depth_embedding import BeerLambert, EnergySpectrum, HistogramCoordinates, LikelihoodFilter
-from depth_embedding import ModelInterpolator, Model2D, ModelDepthEmbedding, ModelMLEEM, StatsCoordinates, model_error 
+from depth_embedding import BeerLambert, EnergySpectrum, HistogramCoordinates, \
+    LikelihoodFilter
+from depth_embedding import ModelInterpolator, Model2D, ModelDepthEmbedding, ModelMLEEM, \
+    StatsCoordinates, model_error 
 
 import scipy
 import scipy.io
-from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze, fliplr, flipud
-from numpy import log, tile, float32, argsort, int32, histogram, linspace, round, exp, convolve, sqrt, mgrid
+from numpy import zeros, ones, sort, unravel_index, repeat, sum, where, squeeze, fliplr
+from numpy import flipud, log, tile, float32, argsort, int32, histogram, linspace, round
+from numpy import exp, convolve, sqrt, mgrid
 import scipy.ndimage.filters 
 import numpy as np 
 import copy 
@@ -16,8 +29,9 @@ import pylab as pl
 
 
 BATCH_SIZE = 128  # Number of events reconstructed in parallel (i.e. in a single batch). 
-                  # If set to 0, all events are reconstructed at once: faster but may starve memory when 
-                  # using large reconstruction grids (e.g. when up-sampling the forward model). 
+                  # If set to 0, all events are reconstructed at once: faster but may 
+                  # starve memory when using large reconstruction grids 
+                  # (e.g. when up-sampling the forward model). 
 
 
 
