@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
+# Harvard Medical School, Martinos Center for Biomedical Imaging 
+# Aalto University, Department of Computer Science 
+
 """Experiments presented in DepthEmbedding article:
 Machine learning for the calibration of depth-of-interaction gamma-cameras. 
-Stefano Pedemonte, Larry Pierce, Koen Van Leemput. Physics in Medicine and Biology, 2017."""
+Stefano Pedemonte, Larry Pierce, Koen Van Leemput. 
+Physics in Medicine and Biology, 2017."""
 
 # Enable experiments with 8mm crystal - real data
 do_8mm  = True
@@ -24,10 +28,12 @@ import numpy as np
 if do_simulation: 
     import cmice_simulation
 
-    ts1 = cmice_simulation.CmiceSimulation_15mm(nx_resample=49, ny_resample=49, nz_resample=24)
+    ts1 = cmice_simulation.CmiceSimulation_15mm(nx_resample=49, ny_resample=49, \
+        nz_resample=24)
     ts1.run()
 
-    ts2 = cmice_simulation.CmiceSimulation_15mm(nx_resample=98, ny_resample=98, nz_resample=48)
+    ts2 = cmice_simulation.CmiceSimulation_15mm(nx_resample=98, ny_resample=98, \
+        nz_resample=48)
     ts2.run()
 
 #########################################################################################
@@ -195,17 +201,6 @@ filename = path+'estim_model_2D_%d_%d.png'%(x,y)
 plt.savefig(filename, bbox_inches=extent)
 
 ##############################################################################
-# Create images manifold 
-
-
-##############################################################################
-# Save images reconstructed grid 
-##############################################################################
-
-
-
-
-##############################################################################
 # Evaluate error in model recovery with varying LLE neighbor size
 ##############################################################################
 
@@ -216,7 +211,8 @@ N          = 4000
 
 true_model = f[x,y,:,:].squeeze()
 data, depth = t.get_data_grid(x,y)
-prior = depth_embedding.BeerLambert(n_bins=nz, bin_size_cm=1.5/nz).get_probability_mass_function()
+prior_obj = depth_embedding.BeerLambert(n_bins=nz, bin_size_cm=1.5/nz)
+prior = prior_obj.get_probability_mass_function()
 
 error = np.zeros(eta_range.shape)
 
@@ -240,14 +236,13 @@ plt.axis([eta_range.min(), eta_range.max(), 0.0, 10.0])
 ##############################################################################
 
 N_range    = np.int32(np.arange(200,10000,200))
-#N_range = np.int32([1500,2000,])
-
 x          = 10 
 y          = 20 
 
 true_model = f[x,y,:,:].squeeze()
 data, depth = t.get_data_grid(x,y)
-prior = depth_embedding.BeerLambert(n_bins=nz, bin_size_cm=1.5/nz).get_probability_mass_function()
+prior_obj = depth_embedding.BeerLambert(n_bins=nz, bin_size_cm=1.5/nz)
+prior = prior_obj.get_probability_mass_function()
 
 error_DE    = np.zeros(N_range.shape)
 error_MLEEM = np.zeros(N_range.shape)
@@ -276,4 +271,5 @@ plt.plot(N_range, error_DE, 'b')
 plt.hold(1)
 plt.plot(N_range, error_MLEEM, 'r') 
 
+##############################################################################
 
